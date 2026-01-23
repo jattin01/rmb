@@ -1,0 +1,79 @@
+.loa-detail-label p {
+    background: #fff;
+    padding: 5px; 
+	border-radius: 10px;
+    padding: 12px 11px; 
+    font-size: 13px;
+    margin-top: 5px !important; 
+    font-weight: normal;
+    min-height: 45px;  
+}
+
+.loa-detail-label label {
+    margin-bottom: 0 
+}
+
+.modal-lg-big {
+    max-width: 1000px
+}
+
+.loa-detail-labelw p {
+    background: #fff;
+    border-radius: 6px;
+    font-size: 14px;
+    font-weight: 500;
+	margin-bottom: 20px;
+    line-height: 20px
+}
+
+.loa-detail-labelw label, .loa-detail-label label {
+    color: #8a8a8a;
+    font-size: 13px;
+    font-weight: normal !important;
+}
+
+.sel-assign .bootstrap-select>.dropdown-toggle {
+    padding: 7px
+}
+
+/* .searchinput {
+    padding: 8px !important
+} */
+
+.allList_bg2 {
+    border: #eee thin solid
+}
+
+.permission-section.nav-pills .nav-link.active,
+.permission-section.nav-pills .show>.nav-link {
+    color: #fff;
+    background-color: #f47735;
+    border-left: #4e4e4e 5px solid;
+}
+
+.permission-section .nav-link {
+    padding: 15px 15px;
+    border-radius: 10px
+}
+
+.permission-section.nav-pills .nav-link:not(.active):hover {
+    color: #f47735;
+}
+
+
+.font-weight-extramed { font-weight: 500 !important}
+
+
+.student-bg { background: #f8f9fe; border-radius: 30px;  }
+.student-bg .curveBox { background: #fff; border-radius: 20px; box-shadow: 0px 3px 6px #2c28281c; padding: 15px}
+
+.studentprofile img { width: 100%; height: 150px; object-fit: cover; border-radius: 15px }
+.stuprofile-detail { margin:-50px 20px 0 }
+.stuprofile-detail img { border-radius: 15px; border: #fff 5px solid; width: 85px}
+.student-cardbtn { background: #6ac977; border-radius: 13px !important; border: #6ac977 thin solid; text-transform: none !important; padding: 8px !important}
+
+
+.lab-provipackag img { width: 35px; height: 35px; object-fit: contain; background: #eee; border-radius: 50%; border: #cfcfcf 2px solid; margin-left: -16px; font-size: px } 
+.lab-provipackag  {  font-size: 11px } 
+
+.btn-topback { border-radius: 7px !important; padding: 0.4rem 1.2rem !important; }

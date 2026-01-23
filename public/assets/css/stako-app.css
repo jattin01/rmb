@@ -1,0 +1,502 @@
+.accordion.accordion-app .card-header:after {
+    font-family: 'FontAwesome';
+    content: "\f068";
+    float: right;
+}
+
+.accordion.accordion-app .card-header.collapsed:after {
+    /* symbol for "collapsed" panels */
+    content: "\f067";
+}
+
+.accordion.accordion-app .card-header:after {
+    position: absolute;
+    right: 15px;
+    top: 22px;
+}
+
+.accord-text {
+    color: #9095A0;
+    font-weight: 400;
+    font-size: 14px;
+}
+
+.accord-text strong {
+    color: #2B2D4A;
+    display: block;
+    font-weight: 500;
+}
+
+.subtitle-app {
+    font-size: 16px;
+    margin-bottom: 10px;
+    color: #2B2D4A;
+}
+
+.accordion.accordion-app {
+    margin-bottom: 10px;
+}
+
+.brdr-input .form-control {
+    border: 1px solid #eee;
+}
+
+.simple-radio {
+    position: relative;
+    padding: 0;
+    margin: 0;
+}
+
+.simple-radio:not(:first-child) {
+    margin-left: -3px !important;
+}
+
+.simple-radio span {
+    position: relative;
+    padding: 0 6px;
+    height: 20px;
+    color: #888;
+    display: block;
+    cursor: pointer;
+    font-size: 14px;
+    line-height: 20px;
+    padding-left: 30px;
+}
+
+.simple-radio span::before {
+    position: absolute;
+    content: '';
+    left: 0px;
+    top: 0px;
+    height: 20px;
+    width: 20px;
+    border-radius: 20px;
+    border: 1px solid #d0d0d0;
+	background: #fff;
+}
+
+.simple-radio input[type="radio"] {
+    opacity: 0;
+    position: absolute;
+    margin: 0px;
+}
+
+.simple-radio input[type="radio"]:checked+span {
+    color: #f47735;
+}
+
+.simple-radio input[type="radio"]:checked+span::before {
+    background: #f47735;
+}
+
+.simple-radio input[type="radio"]:checked+span::after {
+    position: absolute;
+    content: '';
+    left: 4px;
+    top: 5px;
+    height: 6px;
+    width: 12px;
+    transform: rotate(-45deg);
+    border-left: 1px solid #fff;
+    border-bottom: 1px solid #fff;
+}
+
+.box-radio {
+    position: relative;
+    padding: 0;
+    margin: 0;
+}
+
+.box-radio:not(:first-child) {
+    margin-left: -3px !important;
+}
+
+.box-radio span {
+    position: relative;
+    padding: 6px 10px;
+    color: #ccc;
+    display: block;
+    height: 35px;
+    text-align: center;
+    border: 1px solid #ccc;
+    cursor: pointer;
+    font-size: 14px;
+}
+
+.box-radio input[type="radio"] {
+    opacity: 0;
+    position: absolute;
+    margin: 0px;
+}
+
+.box-radio input[type="radio"]:checked+span {
+    border: 1px solid #000;
+    background: #000;
+}
+
+.box-radio:first-child span {
+    border-top-left-radius: 3px;
+    border-bottom-left-radius: 3px;
+}
+
+.box-radio:last-child span {
+    border-top-right-radius: 3px;
+    border-bottom-right-radius: 3px;
+}
+
+.radio-items-app {
+    padding-top: 20px;
+    padding-bottom: 20px;
+}
+
+.items-add-app {
+    padding: 10px 0 0;
+    position: relative;
+    padding-right: 40px;
+    border-bottom: 1px dashed #fff;
+}
+
+.items-add-app .form-control {
+    padding: 6px 10px;
+    height: 40px;
+}
+
+.items-add-app .btn-add-app {
+    position: absolute;
+    right: 0;
+    bottom: 15px;
+    padding: 6px 10px;
+    background: #f47735;
+    color: #fff;
+    /* width: 30px !important; */
+    min-width: auto !important;
+    height: 40px;
+}
+
+.btn-minus-app {
+    position: absolute;
+    right: 0;
+    bottom: 15px;
+    padding: 6px 10px;
+    background: #f43535;
+    color: #fff;
+    /* width: 30px !important; */
+    min-width: auto !important;
+    height: 40px;
+}
+
+.items-add-app:not(:first-child) label {
+    display: none;
+}
+
+.items-add-app:last-child {
+    border-bottom: none;
+}
+
+.docupload-app {
+    background: #fff;
+    padding: 15px;
+    border-radius: 10px;
+    border: 1px solid #eee;
+    margin-bottom: 10px;
+}
+
+.docupload-app input[type="file"] {
+    padding-left: 2px;
+}
+
+.more-docupload-app {
+    padding: 15px 0;
+    border-radius: 10px;
+    /* border: 1px solid #eee; */
+    margin-bottom: 10px;
+}
+
+.more-docupload-app input {
+    height: auto;
+}
+
+.mt-30 {
+    margin-top: 30px;
+}
+
+.more-docupload-app .row:not(:first-child) label {
+    display: none;
+}
+
+.btn-delete {
+    padding: 6px 10px;
+    background: #f43535;
+    color: #fff;
+}
+
+.btn-theme {
+    padding: 6px 10px;
+    background: #f47735;
+    color: #fff;
+    font-weight: normal !important;
+}
+
+.btn-delete-item {
+    padding: 6px 10px;
+    background: #f43535;
+    color: #fff;
+    font-weight: normal !important;
+}
+
+.frytbtn {
+    text-align: right;
+}
+
+.custom-table-app {
+    border-spacing: 0 5px;
+    border-collapse: separate;
+}
+
+.custom-table-app thead tr th {
+    border: none;
+    opacity: 0.5;
+    letter-spacing: 0.2px;
+    font-size: 11px;
+    text-transform: uppercase;
+}
+
+.custom-table-app tbody tr td {
+    border: 1px solid #fff;
+    background: #fff;
+    vertical-align: middle;
+    margin-bottom: 3px;
+    padding: 8px 8px;
+    font-size: 11.5px;
+}
+
+.custom-table-app tbody tr td:first-child {
+    border-top-left-radius: 6px;
+    border-bottom-left-radius: 6px;
+}
+
+.custom-table-app tbody tr td:last-child {
+    border-top-right-radius: 6px;
+    border-bottom-right-radius: 6px;
+}
+
+.custom-table-app tbody tr:hover td {
+    border: 1px solid #000;
+    border-left-color: #fff;
+    border-right-color: #fff;
+}
+
+.custom-table-app tbody tr:hover td:first-child {
+    border-left-color: #000;
+}
+
+.custom-table-app tbody tr:hover td:last-child {
+    border-right-color: #000;
+}
+
+.input-40 .form-control {
+    height: 40px;
+    padding: 6px 12px;
+}
+
+.theme-checkbox {
+    position: relative;
+}
+
+.theme-checkbox:last-child {
+    padding-right: 0;
+}
+
+.theme-checkbox span {
+    position: relative;
+    padding-left: 25px;
+    color: rgba(0, 0, 0, 0.6);
+    cursor: pointer;
+}
+
+.theme-checkbox span:before {
+    position: absolute;
+    width: 18px;
+    height: 18px;
+    top: 0;
+    left: 0;
+    content: '';
+    border: 1px solid #333;
+    border-radius: 2px;
+}
+
+.theme-checkbox input[type="checkbox"] {
+    opacity: 0;
+    position: absolute;
+    margin: 0px;
+}
+
+.theme-checkbox input[type="checkbox"]:checked+span {
+    color: #000;
+}
+
+.theme-checkbox input[type="checkbox"]:checked+span:before {
+    border-color: #f47735;
+    background: #f47735;
+    box-shadow: 0px 0px 10px rgba(0, 0, 0, 0.5);
+}
+
+.theme-checkbox input[type="checkbox"]:checked+span:after {
+    position: absolute;
+    content: "";
+    left: 4px;
+    top: 4px;
+    transform: rotate(-45deg);
+    width: 11px;
+    height: 7px;
+    border-left: 2px solid #fff;
+    border-bottom: 2px solid #fff;
+    font-size: 12px;
+    line-height: 20px;
+    text-align: center;
+}
+
+.tree-app {
+    min-height: 20px;
+    -webkit-border-radius: 4px;
+    -moz-border-radius: 4px;
+    border-radius: 4px;
+    font-weight: normal !important;
+    font-size: 11px;
+}
+
+.tree-app li {
+    list-style-type: none;
+    margin: 0;
+    padding: 5px;
+    position: relative
+}
+
+.tree-app ul ul li:hover {
+    background: rgba(0, 0, 0, .015)
+}
+
+.tree-app li:after,
+.tree-app li:before {
+    content: '';
+    left: -20px;
+    position: absolute;
+    right: auto
+}
+
+.tree-app li:before {
+    border-left: 1px solid #999;
+    bottom: 50px;
+    height: 100%;
+    top: -11px;
+    width: 1px;
+    -webkit-transition: "border-color 0.1s ease 0.1s";
+    -moz-transition: "border-color 0.1s ease 0.1s";
+    -o-transition: "border-color 0.1s ease 0.1s";
+    transition: "border-color 0.1s ease 0.1s"
+}
+
+.tree-app li:after {
+    border-top: 1px solid #999;
+    height: 20px;
+    top: 18px;
+    width: 25px
+}
+
+.tree-app li span {
+    -moz-border-radius: 5px;
+    -webkit-border-radius: 5px;
+    border: 1px dotted #999;
+    border-radius: 5px;
+    display: inline-block;
+    padding: 3px 8px;
+    text-decoration: none;
+    -webkit-transition: color .2s ease .1s, background-color .2s ease .1s, border-color .3s ease .2s;
+    -moz-transition: color .2s ease .1s, background-color .2s ease .1s, border-color .3s ease .2s;
+    -o-transition: color .2s ease .1s, background-color .2s ease .1s, border-color .3s ease .2s;
+    transition: color .2s ease .1s, background-color .2s ease .1s, border-color .3s ease .2s
+}
+
+.tree-app li.parent_li>span {
+    cursor: pointer;
+    padding: 7px
+}
+
+.tree-app>ul>li::after,
+.tree-app>ul>li:before {
+    border: 0
+}
+
+.tree-app li:last-child::before {
+    height: 30px
+}
+
+.tree-app li.parent_li>span:hover,
+.tree-app li.parent_li>span:hover+ul li span {
+    background: #eee;
+    border: 1px solid #94a0b4;
+    color: #000
+}
+
+.tree-app>ul {
+    padding-left: 0
+}
+
+.tree-app ul ul {
+    padding-left: 34px;
+    padding-top: 0px
+}
+
+.tree-app li.parent_li>span:hover {
+    background-color: #DF8505;
+    border: 1px solid #C67605;
+    color: #fff
+}
+
+.tree-app li.parent_li>span:hover+ul li::before {
+    border-left-color: #df8505
+}
+
+.tree-app li.parent_li>span:hover+ul li::after {
+    border-top-color: #F89406
+}
+
+.tree-app li.parent_li>span:hover+ul li span {
+    background: #FDDFB3!important;
+    border: 1px solid #FAA937;
+    color: #000
+}
+
+.tree-app .fa.icon-minus-sign:before {
+    content: "\f056"!important
+}
+
+.tree-app .fa.icon-plus-sign:before {
+    content: "\f055"!important
+}
+
+.items-add-app .selectBtn,
+#search-loa .selectBtn,
+#search-loa table .selectBtn {
+    font-size: 14px;
+    padding: 8px 12px;
+}
+
+.table-sm {
+    font-size: 11px;
+}
+
+.title-app {
+    font-size: 20px;
+    margin-bottom: 10px;
+    color: #2B2D4A;
+}
+
+.brdr-input .form-control {
+    border: 1px solid #eee;
+}
+
+.m-20 {
+    margin-bottom: 20px;
+    margin-top: 20px;
+}

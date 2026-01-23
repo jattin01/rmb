@@ -1,0 +1,66 @@
+/* Common Table */
+.general-table thead { background: #F3F3F1; border-radius: 12px; }
+.general-table thead th { border-bottom: none; }
+.general-table th:first-child { border-top-left-radius: 12px; border-bottom-left-radius: 12px; }
+.general-table th:last-child { border-top-right-radius: 12px; border-bottom-right-radius: 12px; }
+.general-table th { font-size: 11px; font-weight: normal; border-top: none; padding: 12px 1rem; white-space: nowrap; min-width: 90px; border-bottom: 2px solid #000; }
+.general-table td { padding: 0.2rem 1rem; color: #000000; font-size: 13px; font-weight: normal; border-top: none; border-bottom: 1px solid #CECECE; min-width: 90px;}
+
+.general-table td.gray-text { color: #999999;  }
+.general-table td .table-edittext { color: #A146F9; margin-right: 4px; }
+
+.general-table tbody tr:nth-of-type(odd) { background-color: #fff !important; }
+.general-table tbody tr:nth-of-type(even) { background-color: #FBFBFB !important; }
+
+.general-table td.table-activetext { color: #0AAB7C; }
+.general-table td.table-inactivetext { color: #a8abb3; }
+
+/* Interactive table */
+.general-table-interactive thead { background: #F3F3F1; border-radius: 12px; }
+.general-table-interactive thead th { border-bottom: none; }
+.general-table-interactive th:first-child { border-top-left-radius: 12px; border-bottom-left-radius: 12px; }
+.general-table-interactive th:last-child { border-top-right-radius: 12px; border-bottom-right-radius: 12px; }
+.general-table-interactive th { font-size: 13px; font-weight: normal; border-top: none; padding: 12px 1rem; white-space: nowrap; min-width: 90px; border-bottom: 2px solid #000; }
+.general-table-interactive td { padding: 0.2rem 1rem; color: #000000; font-size: 13px; font-weight: normal; border-top: none; border-bottom: 1px solid #CECECE; min-width: 90px;}
+
+.general-table-interactive td.gray-text { color: #999999;  }
+.general-table-interactive td .table-edittext { color: #A146F9; margin-right: 4px; }
+
+.general-table-interactive tbody tr { background-color: #fff !important; }
+
+.general-table-interactive td.table-activetext { color: #0AAB7C; }
+.general-table-interactive td.table-inactivetext { color: #a8abb3; }
+
+.select2-selection__choice__remove {
+    color : #000 !important;
+    position: initial !important;
+}
+
+.select2-selection__clear {
+    margin-right: 1rem !important;
+}
+
+.select2-search__field {
+    border: none !important;
+    font-size: initial !important;
+}
+
+.select2-search__field {
+    margin-top: -0.8rem !important;
+    margin-bottom: 0.5rem !important;
+}
+
+.select2-selection--single {
+    padding: 0% !important;
+}
+
+.select2-container {
+    padding: 0% !important;
+}
+.spaced_dropdown {
+    padding: 0% !important;
+    margin-top: 0.5rem !important;
+}
+.full-table {
+    min-height: 12rem;
+}

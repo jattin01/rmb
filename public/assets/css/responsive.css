@@ -1,0 +1,358 @@
+/* ---------------------------------- Responsive Media Styles ---------------------------------*/
+
+@media only screen and (min-width: 1500px) and (max-width: 1920px) {}
+
+@media only screen and (min-width: 1200px) and (max-width: 1340px) {}
+
+
+/* Medium Device : 1280px */
+
+@media only screen and (min-width: 992px) and (max-width: 1199px) {}
+
+
+/* Tablet Device : 768px */
+
+@media only screen and (min-width: 768px) and (max-width: 991px) {
+    .loginTabs {
+        width: 90%;
+        margin: 20px auto 0px;
+        float: none;
+        padding-right: 0;
+    }
+
+    .investlogo {
+        padding: 0px 0px 0px 0px;
+        text-align: right;
+        clear: both;
+    }
+    .sidebar-collapse .main-sidebar,
+    .sidebar-collapse .main-sidebar::before {
+        margin-left: 0px;
+    }
+}
+
+
+/* Medium : 647px */
+
+@media only screen and (max-width: 767px) {
+    .yogiimg {
+        display: none;
+    }
+    .uplogo {
+        padding: 20px;
+    }
+    .loginArea {
+        padding: 10px 20px;
+    }
+    .investlogo {
+        text-align: center;
+        padding: 0;
+    }
+    .loginTabs {
+        width: 90%;
+        margin: 20px auto 0px;
+        float: none;
+        padding-right: 0;
+    }
+
+    .layout-fixed .main-sidebar {
+        left: 0;
+    }
+    .sidebar-dark-primary {
+        margin: 0;
+    }
+    .userData {
+        margin: 0;
+    }
+}
+
+
+/* Small : 320px */
+
+@media only screen and (max-width: 575px) {
+.yogiimg {
+        display: none;
+    }
+    .uplogo {
+        padding: 20px;
+    }
+
+    .loginArea {
+        padding: 10px 20px;
+    }
+    .investlogo {
+        text-align: center;
+        padding: 0;
+    }
+    .loginTabs {
+        width: 90%;
+        margin: 20px auto 0px;
+        float: none;
+        padding-right: 0;
+    }
+    .layout-fixed .main-sidebar {
+        left: 0;
+    }
+    .sidebar-dark-primary {
+        margin: 0;
+    }
+    .userData {
+        margin: 0;
+    }
+
+	.student-invite { padding: 8px 0px; font-weight: 700; font-size: 13px; }
+	.student-invite img { width: 59px; margin-bottom: -10px;}
+
+    /* ant fost */
+
+    .main-sidebar {
+        /* transition: margin-left .3s ease-in-out,width .3s ease-in-out; */
+        width: 100px;
+    }
+
+    .login-boxrightcontent h4 { font-size: 30px; line-height: 35px; }
+    .down-rightarrowsignin { right: 0px; top: 132px; opacity: 0.5; }
+    .login-boxrightcontent p { font-size: 12px; padding-top: 10px; }
+    .login-box {  padding: 20px 15px; }
+    .login-box h1 { font-size: 25px; }
+    .login-box p { font-size: 13px; padding-top: 0px; }
+    .sign-inpt { font-size: 12px !important; padding: 12px 15px; }
+    .msgimg { top: 14px; }
+    .close-eyesimg { top: 19px; }
+    .login-box h6 {  font-size: 12px; padding-top: 5px; }
+    .login-box h4 { font-size: 12px; }
+    .sign-btn { font-size: 13px; padding: 10px 13px; }
+    .login-contentboxbg { padding-bottom: 18px; background-size: 89%; }
+    .loginbg h5 { font-size: 11px; }
+
+    .userData { border: none; min-width: 58px; }
+    .content-header { padding: 10px 0px;  }
+    .content-wrapper { border-radius: 20px; }
+    .layout-fixed .main-sidebar { top: 0px; border-radius: 0px; }
+    .nav-link { padding: 8px 20px; }
+    .user-profile .dropdown-menu.useraction-dropdown { padding: 15px 15px; }
+    .filter-modal .modal-body {   padding: 0px 20px 20px 20px;  }
+    .filter-contentbox h6 { font-size: 18px; }
+    .select-contentbox { font-size: 13px !important; }
+    .apply-btn { padding: 10px 10px; font-size: 13px; }
+    .profile-imgbox { width: 136px; height: 136px; line-height: 136px; }
+    .profileinput-box { padding: 9px 15px;  }
+    .user-profileinput { font-size: 13px !important; }
+    .profileinput-box p { font-size: 13px; }
+    .top-head h1 { font-size: 22px; }
+    .top-head p { font-size: 13px; }
+    .filter-box { font-size: 13px; width: 105px; padding: 7px 10px; }
+    .card-head h1 { font-size: 14px; margin-bottom: 2px; }
+    .card-head h6 { font-size: 15px; }
+    .card-head h4 { font-size: 14px; }
+    .order-completionbg { padding-top: 14px; }
+    .order-completioncontentbox h6 { font-size: 14px; }
+    .order-completionchartvalue h4 { font-size: 13px; margin-bottom: 6px; }
+    .cancellation-box { width: 52px; height: 70px; }
+
+    .bottom-shadowimg h6 { top: 10px; font-size: 17px; }
+    .cancellation-box p { font-size: 11px; padding-top: 1px; }
+    .last-daystext {  padding: 3px 4px;  font-size: 12px;  }
+    .plants-tab .nav-item {  margin-right: 7px; margin-bottom: 7px;  }
+    .search-byinpt { font-size: 13px !important; padding: 8px 15px; }
+    .fill-serchimg { right: 13px; top: 9px; }
+    .btn-primary { font-size: 12px;  padding: 7px 10px; }
+    .btn-success { font-size: 12px;  padding: 7px 10px; }
+    .export-btn { font-size: 12px;  padding: 7px 10px;  }
+    .filter-select { font-size: 13px; padding: 6px 38px 6px 10px; min-width: 95px; }
+    .order-valuebox { padding: 4px 7px 4px 7px; }
+    .clear-text { font-size: 11px; }
+    .order-table th { font-size: 12px; }
+    .order-table td { padding: 5px 5px; font-size: 12px; }
+    .pendding-badge { padding: 3px 10px; }
+    .table-eyes { width: 32px; height: 32px; line-height: 30px; }
+    .table-edits { width: 32px; height: 32px; line-height: 32px; }
+    .pagination .page-item .page-link.next { font-size: 20px; line-height: 26px;  width: 30px; height: 30px; }
+    .pagination .page-link { padding: 2px 8px; }
+    .pagination .page-item {  margin-right: 15px;  }
+    .calender-box .calender-btn { padding: 3px 10px; font-size: 12px; }
+    .calender-box .dropdown-menu { width: 280px; padding: 8px 15px; transform: translate3d(-3px, 44px, 0px) !important; }
+    .fc .fc-toolbar .fc-toolbar-title { font-size: 18px; }
+    .fc-daygrid-day-number { font-size: 12px; }
+    .reject-btn { font-size: 12px; padding: 7px 10px; }
+    .pending-btn { font-size: 12px; padding: 7px 10px; }
+    .approval-historybtn { padding: 7px 10px; }
+    .back-btn { font-size: 13px; padding: 5px 15px; }
+    .project-details { font-size: 18px; }
+    .order-completioncontentbox h4 { font-size: 16px; }
+    .order-completioncontentbox h3 { font-size: 12px; }
+    .max-filesizetext { font-size: 12px; }
+    .custom-file-label { padding: 5px 15px; font-size: 12px; line-height: 38px; height: 45px; }
+    .custom-file-label::after { font-size: 13px; right: 5px; line-height: 33px; }
+    .approval-historycontentbox { padding: 15px 15px; }
+    .approval-historycontentbox h6 { font-size: 14px; }
+    .approval-historycontentbox p { font-size: 12px; }
+    .upload-image { width: 75px; height: 60px; }
+    .order-map { height: 250px; }
+    .fastest-routebox { font-size: 12px; width: 200px; right: 56px; padding: 10px 10px; }
+    .order-detailscontent { padding: 15px 18px 15px 18px; }
+    .order-details h1 { font-size: 15px; }
+    .order-detailscontent p { font-size: 12px; }
+    .order-detailscontent h6 { font-size: 13px; }
+    .customer-infotextinner { padding: 20px 20px 20px 25px; }
+    .customer-infotextinner h6 { font-size: 15px; }
+    .customer-timelineinner p { font-size: 12px; }
+    .customer-timelineinner h4 { font-size: 13px; }
+    .customer-timelineinner { margin-top: 15px; }
+    .customer-timeline::after { top: 48px; }
+    .customer-infotext { padding-left: 15px; background-size: 5.6%; }
+    .mix-details { padding: 15px 15px 15px 15px; }
+    .cancel-btn { padding: 10px 10px; font-size: 13px; }
+    .edit-btn { padding: 10px 10px; font-size: 13px; }
+    .order-tab { border-radius: 0px; }
+    .order-tab .nav-item {  margin-right: 10px;  }
+    .order-tab .nav-link { padding: 6px 15px; }
+
+    .head-innerbox { width: 105px; }
+    .chart-table th:first-child { padding-left: 5px !important; font-size: 13px; }
+    .chart-table td:first-child { font-size: 12px; padding-left: 5px; padding-right: 5px; }
+
+    .progress-linechart::after {  left: 170%; }
+    .fc .fc-view-harness { min-height: 250px !important; }
+    .content-header { padding-bottom: 15px !important; }
+    .trip-userbox { width: 60px; height: 60px; }
+    .trip-scrollbox { position: relative; overflow-y: hidden; overflow-x: scroll; padding-bottom: 15px; }
+    .mix-detailstimelinecontentbox { padding-right: 10px; }
+    .mix-detailstimelinemain::after { width: 204%; left: 31px; }
+    .order-detailscontent h3 { font-size: 15px; }
+    .order-detailscontent h4 { font-size: 12px; padding-top: 3px; }
+    .schedule-generatedtext h4 { font-size: 15px; }
+    .schedule-generatedtext h6 { font-size: 12px; padding-top: 5px; }
+
+    .resources-texttab { display: block; }
+    .resources-texttab::after { display: none; }
+    .resources-texttab .nav-item .nav-link.active::before { display: none; }
+    .resources-texttab .nav-item .nav-link::after { display: none; }
+    .resources-texttab .nav-item { margin-right: 90px; margin-bottom: 9px; }
+    .resources-texttab .nav-item:last-child { margin-right: 90px; }
+
+.readymix-contentbox { padding: 10px 10px; }
+.readymix-contentbox h6 { font-size: 16px; }
+.readymix-contentbox p { font-size: 13px; }
+.resources-accordion .card button { font-size: 13px; padding: 12px 9px; }
+.selected-btn { padding: 3px 7px; font-size: 11px; }
+.resources-accordion .card-body { padding: 14px 9px; }
+
+.selected-label { font-size: 13px !important; }
+.filter-check [type="checkbox"].filled-in:checked+label:before { top: 2px; left: 4px; width: 6px; height: 11px; }
+.filter-check [type="checkbox"].filled-in:checked+label:after { width: 22px; height: 22px; }
+.filter-check [type="checkbox"].filled-in:not(:checked)+label:after { height: 22px; width: 22px; }
+.filter-check [type="checkbox"]+label { padding-left: 30px; line-height: 23px; }
+
+.hours-box { padding: 12px 12px; }
+.hours-box h3 { font-size: 13px; }
+.select-quntitybox { padding: 4px 8px; font-size: 13px; }
+.input-quntitybox { padding: 4px 5px; }
+
+.pumps-check [type="checkbox"].filled-in:checked+label:before { top: 2px; left: 4px; width: 6px; height: 11px; }
+.pumps-check [type="checkbox"].filled-in:checked+label:after { width: 22px; height: 22px; }
+.pumps-check [type="checkbox"].filled-in:not(:checked)+label:after { height: 22px; width: 22px; }
+.pumps-check [type="checkbox"]+label { padding-left: 30px; line-height: 23px; }
+
+.generating-schedulebox h6 { font-size: 18px; }
+.generating-schedulebox p { font-size: 12px; }
+
+
+/*=========*/
+.requirementaccordion .card { padding: 10px 10px; }
+.save-btn { font-size: 12px; padding: 7px 10px; }
+.btn-publish { font-size: 12px; padding: 7px 10px; }
+.requirementaccordion button { font-size: 15px; }
+.requirementaccordion-label { font-size: 14px; }
+.resource-requirementcontentbox { padding: 10px 10px; }
+.resource-requirementcontentbox p { font-size: 12px; }
+.resource-requirementcontentbox h6 { font-size: 13px; }
+.white-box { padding: 10px 10px; }
+.pumps-label { font-size: 13px; }
+.mix-detailscontentbox { padding: 15px 15px; }
+/*  */
+.slots-days [type="checkbox"]+label { width: 129px; font-size: 12px; }
+.slots-days [type="checkbox"]+label { line-height: 38px; }
+.slots-days [type="checkbox"].filled-in:not(:checked)+label {  height: 38px; }
+.slots-days [type="checkbox"]:checked+label { height: 38px; }
+.progress-circle:before { width: 58px; height: 58px; }
+.progress-circle { width: 66px; height: 66px; }
+.progress-txt { line-height: 12px;  top: 52%;  font-size: 15px; }
+.progress-txtgray { font-size: 9px; }
+.resources-batchingplantcontentbox { padding: 10px 10px; }
+.progress-contentbox { padding: 8px 5px; }
+.progress-contentbox h2 { font-size: 11px; }
+.more-iconprogressbox {  right: 0px;  padding: 0px; }
+.loaction-contentbox h6 { font-size: 12px; }
+.loaction-contentbox h5 { font-size: 13px; }
+.Plant-detailscontent { margin-right: 5px; }
+.batchingplant-detailsmain .Plant-detailscontent:nth-of-type(5n) { margin-right: 5px; }
+.batchingplant-detailsmain .Plant-detailscontent:nth-of-type(2n) { margin-right: 0px; }
+.Plant-detailscontent { width: 131px; padding: 10px 10px; }
+
+.product-doneimgbox { margin-top: -22px; line-height: 23px; width: 25px; height: 25px; }
+.Plant-detailscontent h1 { padding: 5px 5px; font-size: 11px; }
+.Plant-detailscontent h2 { padding-top: 13px; font-size: 13px; }
+.Plant-detailscontent p { font-size: 12px; }
+.batching-plantaddbox { padding: 15px 15px; }
+.transit-mixerbox h6 { font-size: 20px; }
+.transit-mixerbox p { font-size: 12px; }
+.plant-detailscontentbox { padding: 10px 10px; }
+.plant-detailscontentbox h2 { font-size: 13px; }
+.plant-detailscontentbox p { font-size: 11px; }
+.more-iconbox { font-size: 15px; }
+.batching-plantlabel { font-size: 17px; }
+.darg-dropbox { padding: 15px 15px; }
+.darg-dropbox h6 { font-size: 13px; }
+.darg-dropbox p { font-size: 12px; }
+.new-browsebtn .uploadBtn { padding: 6px 25px; font-size: 13px; }
+.drag-dropimgbox { width: 115px; height: 70px; }
+.create-newfrombox { padding: 15px 15px; }
+.material-label { font-size: 14px; }
+.responsive-input { width: 120px; }
+.map-boxcustomer { height: 235px; }
+.map-box { top: 72px; }
+
+.time-linescroll { overflow-x: scroll; overflow-y: hidden; padding-bottom: 10px; }
+.batching-plantbordertop { padding: 10px 10px; }
+.subline { right: -17px; }
+.subline h6 { font-size: 10px; }
+.circle { padding-right: 10px; }
+.more-iconprogressboxnew { top: -58px; }
+.batching-plantbordertop h2 { padding-top: 14px; }
+
+.resources-pumpsbox h3 { font-size: 13px; padding-top: 10px; }
+.resources-pumpsbox { padding: 10px 10px; }
+.new-chatmodel .modal-header { padding: 10px 10px; }
+.chat-headtext { width: 40px; height: 40px; line-height: 40px; font-size: 12px; }
+.new-chatmodel h5 {  font-size: 15px !important; }
+.small-textchat { font-size: 12px; }
+.chat-modal h5 { font-size: 18px; }
+.chat-timingbadge { padding: 4px 15px; font-size: 12px; }
+.dark-cahtbox h6 { font-size: 12px; }
+.dark-cahtbox p { font-size: 10px; }
+.white-cahtbox h6 { font-size: 12px; }
+.white-cahtbox p { font-size: 10px; }
+.chat-input { padding: 5px 10px; }
+.input-attachment { top: 20px; right: 50px; height: 18px; }
+.input-camera { height: 22px; }
+.support-boxchat { padding: 10px 10px; }
+.chat-userbox { font-size: 12px; width: 32px; height: 32px; line-height: 32px; }
+.support-boxchat h2 { font-size: 13px; }
+.support-boxchat p { font-size: 12px; }
+.dark-badge { padding: 3px 8px; font-size: 10px; }
+.support-boxchat h4 { font-size: 11px; margin-bottom: 5px; }
+
+.schedule-table td:nth-child(2) { left: 50px; }
+.schedule-table td:nth-child(3) { left: 103px; }
+
+
+.drop-mainbox .dropdown-menu {
+    width: 316px; } responsive
+
+
+
+
+
+
+ }
