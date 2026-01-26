@@ -92,6 +92,12 @@
                                         <input type="text" name="description" value="{{@$pumpDetails->description}}" class="form-control user-profileinput" placeholder="Write...">
                                     </div>
                                 </div>
+                                 <div class="col-md-6">
+                                    <div class="profileinput-box form-group position-relative">
+                                        <label class="selext-label">Installation Time (In Minutes)</label>
+                                        <input type="text" name="installation_time" value="{{@$pumpDetails->installation_time?? 10}}" class="form-control user-profileinput">
+                                    </div>
+                                </div>
 
                             </div>
 

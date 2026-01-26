@@ -16,6 +16,7 @@ class Pump extends Model
             'description',
             'operator_id',
             'pump_capacity',
+            'installation_time',
             'status'
     ];
 

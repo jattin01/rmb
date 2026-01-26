@@ -97,6 +97,7 @@ class PumpController extends Controller
 
                 $pump->type = $request->type;
                 $pump->pump_capacity = $request->pump_capacity;
+                $pump->installation_time = $request->installation_time;
                 $pump->description = $request->description ?? null;
                 $pump->status = $request->input('pump_status', 'Inactive');
                 $pump->save();
@@ -109,6 +110,7 @@ class PumpController extends Controller
 
                 $pump->type = $request->type;
                 $pump->pump_capacity = $request->pump_capacity;
+                $pump->installation_time = $request->installation_time;
                 $pump->description = $request->description ?? null;
                 $pump->status = $request->input('pump_status', 'Inactive');
                 $pump->save();

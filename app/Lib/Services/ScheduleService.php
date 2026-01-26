@@ -364,6 +364,7 @@ class ScheduleService
             ->whereBetween("delivery_date", [$scheduleData->shift_start, $scheduleData->shift_end])
             ->whereNull("start_time")
             ->where("selected", true)
+            ->orderBy('start_time', 'ASC')
             ->orderBy('priority', 'ASC')
             ->orderBy('quantity', 'DESC')
             ->get();
