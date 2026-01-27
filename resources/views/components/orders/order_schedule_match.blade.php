@@ -188,6 +188,7 @@
 																		@if($res['is_temp_required'])
 																		<img src="{{asset('assets/img/ice.svg')}}" alt="">
 																		@endif
+																		
 																		@if($res['pump_qty'])
 																		<img src="{{asset('assets/img/pump.svg')}}"  alt="">
 																		@endif
@@ -202,6 +203,8 @@
 														</td>
 														@php
 														$slotTimeFlag = false;
+														
+
 														@endphp
 
 														@foreach ($res['resultData'] as $resData)
@@ -292,6 +295,7 @@
 														<td></td>
 														<td></td>
 													</tr>
+													
 													@foreach ($res['pump_schedule'] as $psch)
 													<tr class = "schedule-graph-hidden schedule-graph-{{isset($res['order_no']) ? $res['order_no'] : ''}}">
 														<td>
@@ -969,8 +973,9 @@
 																@if (isset($resData['id']))
 																<div class="main-progressbox">
 																<div class="progress constructions-chart ml{{$resData['start_minutes']}}">
-
+																		
 																	@foreach ($resData['multi_pixels'] as $multiPixel)
+																	
 																		<div class="progress-bar pink_pump" data-toggle="tooltip" data-placement="bottom" title="{{'Internal QC | ' . Carbon\Carbon::parse($multiPixel['qc_start']) -> format('h:i A') . ' to ' . Carbon\Carbon::parse($multiPixel['qc_end']) -> format('h:i A') . ' | Order - '. $multiPixel['order_no']}}" role="progressbar" style="margin-left: {{$multiPixel['margin']  . 'px'}} ;padding : 0%; min-width  : {{$multiPixel['qc_pixels'] ? $multiPixel['qc_pixels'] . 'px !important' : '0%'}}" aria-valuenow="30" aria-valuemin="0" aria-valuemax="100"></div>
 																		<div class="progress-bar purple" data-toggle="tooltip" data-placement="bottom" title="{{'Travel | ' . Carbon\Carbon::parse($multiPixel['travel_start']) -> format('h:i A') . ' to ' . Carbon\Carbon::parse($multiPixel['travel_end']) -> format('h:i A') . ' | Order - '. $multiPixel['order_no']}}" role="progressbar" style="padding : 0%; min-width  : {{$multiPixel['travel_pixels'] ? $multiPixel['travel_pixels'] . 'px !important' : '0%'}}" aria-valuenow="30" aria-valuemin="0" aria-valuemax="100"></div>
 																		<div class="progress-bar dark-green" data-toggle="tooltip" data-placement="bottom" title="{{'Onsite Inspection | ' . Carbon\Carbon::parse($multiPixel['insp_start']) -> format('h:i A') . ' to ' . Carbon\Carbon::parse($multiPixel['insp_end']) -> format('h:i A') . ' | Order - '. $multiPixel['order_no']}}" role="progressbar" style="padding : 0%; min-width  : {{$multiPixel['insp_pixels'] ? $multiPixel['insp_pixels'] . 'px !important' : '0%'}}" aria-valuenow="30" aria-valuemin="0" aria-valuemax="100"></div>

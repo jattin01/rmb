@@ -796,6 +796,7 @@ class OrderController extends Controller
             })->select(
                     "pumps.pump_capacity",
                     "pumps.type",
+                    "pumps.installation_time",
                     "selected_order_pump_schedules.schedule_date",
                     "selected_order_pump_schedules.order_no",
                     "selected_order_pump_schedules.location",

@@ -378,6 +378,7 @@ class OrderHelper
         $rData = [
             'id' => $value['id'],
             'pump_name' => $value['pump'],
+            'install_time'=>$value['installation_time'] ?? 10,
             'total_minutes' => $totalMinutes,
             'colspan' => $colspan,
             'margin' => $startDateTime,

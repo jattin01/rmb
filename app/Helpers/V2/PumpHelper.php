@@ -19,7 +19,7 @@ class PumpHelper
 
         $ps = Pump::join("group_companies", function ($join) {
             $join->on("group_companies.id", "=", "pumps.group_company_id");
-        })->select("pump_name", "pump_capacity", "type", "working_hrs_s", "working_hrs_e")
+        })->select("pump_name", "pump_capacity", "type", "working_hrs_s", "working_hrs_e","installation_time")
             ->where("group_companies.id", $company_id)
             ->where("pumps.status", ConstantHelper::ACTIVE)
             ->whereIn("pumps.id", $pump_ids)
@@ -34,6 +34,7 @@ class PumpHelper
                 'free_upto' => Carbon::parse($schedule_date . ' ' . $p->working_hrs_e)->addDays(2)->format(ConstantHelper::SQL_DATE_TIME),
                 'location' => null,
                 'order_id' => null,
+                'installation_time'=>$p->installation_time ?? 10,
                 'order_id_wo_trip' => null
             );
         }
@@ -92,29 +93,24 @@ public static function getAvailablePumps(
         foreach ($pumps as $pumpKey => $pump) {
 
             $installMinutes = $pump['installation_time'] ?? 10;
-            $travelMinutes  = $order->travel_to_site ?? 0;
 
-            $pumpCount = is_array($pumps) ? count($pumps) : $pumps->count();
-
-            $subMinutes = ($pumpCount == 1)
-                ? ($installMinutes + $travelMinutes) * 2
-                : ($installMinutes + $travelMinutes);
+            $subMinutes = $installMinutes + 1;
 
 
-            $new_pump_start = $pump_start_time;
+             $new_pump_start = $pump_start_time;
 
-            // $new_pump_start = Carbon::parse($pump_start_time)
-            //     ->subMinutes($subMinutes)
-            //     ->format('Y-m-d H:i:s');
+            $new_pump_start = Carbon::parse($pump_start_time)
+                ->subMinutes($subMinutes)
+                ->format('Y-m-d H:i:s');
 
-            // Log::info("Checking Pump", [
-            //     'order' => $order->order_no,
-            //     'trip' => $trip,
-            //     'pump' => $pump['pump_name'],
-            //     'start' => $pump_start_time,
-            //     'end' => $pump_end_time,
-            //     'new_start' => $new_pump_start
-            // ]);
+            Log::info("Checking Pump", [
+                'order' => $order->order_no,
+                'trip' => $trip,
+                'pump' => $pump['pump_name'],
+                'start' => $pump_start_time,
+                'end' => $pump_end_time,
+                'new_start' => $new_pump_start
+            ]);
 
             /* ---- capacity & assignment ---- */
             if (!in_array($pump['pump_capacity'], $capacityKeys)) continue;
