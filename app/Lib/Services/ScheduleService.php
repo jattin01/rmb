@@ -27,8 +27,8 @@ class ScheduleData
     public $company;
     public $schedule_date;
     public $delivered_quantity;
-    
-    
+
+
 
     public $sch_adj_from;
     public $order_start;
@@ -61,9 +61,9 @@ class ScheduleData
     public $generateLog;
     public $execute;
     public $truck_capacity;
-    
+
     public $order_no;
-    
+
     public $location;
 
     public $next_delivery_time;
@@ -225,11 +225,11 @@ class ScheduleService
             $this->initializeVariables($scheduleData);
 
             $orders = $this->fetchOrders($scheduleData);
-            
+
             Log::info("Total Orders: " . count($orders));
 
             foreach ($orders as $orderKey => $order) {
-                 Log::info("Processing Order: " . $order->order_no);
+                Log::info("Processing Order: " . $order->order_no);
 
                 $orderSchedule = clone $scheduleData;
 
@@ -240,7 +240,7 @@ class ScheduleService
                 $this->processOrder($order, $orderSchedule, $scheduleData, $orderKey);
 
 
-                if(isset($orderSchedule->lastResponse) && $orderSchedule->lastResponse['last_trip'] > $orderSchedule->trip) {
+                if (isset($orderSchedule->lastResponse) && $orderSchedule->lastResponse['last_trip'] > $orderSchedule->trip) {
                     $orderSchedule = clone $orderSchedule->lastResponse['data'];
                 }
 
@@ -249,7 +249,7 @@ class ScheduleService
 
                 $scheduleData->tms_availability = $orderSchedule->tms_availability;
                 $scheduleData->pumps_availability = $orderSchedule->pumps_availability;
-                $scheduleData->bps_availability= $orderSchedule->bps_availability;
+                $scheduleData->bps_availability = $orderSchedule->bps_availability;
 
                 $scheduleData->assigned_pumps = $orderSchedule->assigned_pumps;
                 $scheduleData->assigned_plants = $orderSchedule->assigned_plants;
@@ -1045,142 +1045,93 @@ class ScheduleService
         // 1) Buffer calculation
         $installMinutes = $scheduleData->pouring_pump['pump']['installation_time'] ?? 10;
         $travelMinutes = $scheduleData->travel_time ?? 0;
+        $qcTime = $scheduleData->qc_time ?? 0;
+        $loadingTime = $scheduleData->loading_time ?? 0;
 
-        $pumpCount = count($scheduleData->selected_order_pump_schedules) ?: 1;
 
-        $subMinutes = ($pumpCount == 1)
-            ? ($installMinutes + $travelMinutes) * 2
-            : ($installMinutes + $travelMinutes);
+        $bufferTime = $installMinutes + $travelMinutes + $qcTime + $loadingTime;
 
         // 2) Helper to apply buffer
-        $applyBuffer = function ($time) use ($subMinutes) {
+        $applyBuffer = function ($time) use ($bufferTime) {
             return $time
-                ? \Carbon\Carbon::parse($time)->subMinutes($subMinutes)->format('Y-m-d H:i:s')
+                ? \Carbon\Carbon::parse($time)->subMinutes($bufferTime)
                 : null;
         };
 
+      
+
+
         $key = $scheduleData->pouring_pump['pump']['pump_name'];
 
+        
+
         // 3) First-time pump
-        if (!isset($scheduleData->selected_order_pump_schedules[$key])) {
-            $scheduleData->selected_order_pump_schedules[$key] = [
+           if(!isset($scheduleData->selected_order_pump_schedules[$scheduleData->pouring_pump['pump']['pump_name']]) ) {
+            $scheduleData->selected_order_pump_schedules[$scheduleData->pouring_pump['pump']['pump_name']] = array(
+
                 'order_id' => $order->id,
                 'user_id' => $scheduleData->user_id,
                 'pump' => $scheduleData->pouring_pump['pump']['pump_name'],
                 'mix_code' => $order->mix_code,
                 'cust_product_id' => $order->customer_product_id,
-                'trip' => 1,
+                'trip' =>  1,
                 'batching_qty' => $scheduleData->batching_qty,
-
                 'qc_start' => $applyBuffer($scheduleData->qc_start),
                 'qc_time' => $scheduleData->qc_time,
-                'qc_end' => $scheduleData->qc_end,
-
+                'qc_end' => $applyBuffer($scheduleData->qc_end),
                 'travel_time' => $scheduleData->travel_time,
                 'travel_start' => $applyBuffer($scheduleData->travel_start),
-                'travel_end' => $scheduleData->travel_end,
-
+                'travel_end' => $applyBuffer($scheduleData->travel_end),
                 'insp_time' => $scheduleData->insp_time,
                 'insp_start' => $applyBuffer($scheduleData->insp_start),
-                'insp_end' => $scheduleData->insp_end,
-
+                'insp_end' => $applyBuffer($scheduleData->insp_end),
                 'cleaning_time' => $scheduleData->cleaning_time,
                 'delivery_start' => $applyBuffer($scheduleData->delivery_time),
-
                 'group_company_id' => $scheduleData->company,
                 'schedule_date' => $scheduleData->schedule_date,
                 'order_no' => $scheduleData->order_no,
                 'location' => $scheduleData->location,
-
-                'pouring_time' => $scheduleData->pouring_time,
+                'pouring_time' => $scheduleData->pouring_time + $bufferTime,
                 'pouring_start' => $applyBuffer($scheduleData->pouring_start),
                 'pouring_end' => $scheduleData->pouring_end,
-
-                'cleaning_start' => $applyBuffer($scheduleData->cleaning_start),
+                'cleaning_start' => $scheduleData->cleaning_start,
                 'cleaning_end' => $scheduleData->cleaning_end,
-
                 'return_time' => $scheduleData->return_time,
-                'return_start' => $applyBuffer($scheduleData->return_start),
-                'return_end' => $scheduleData->return_end,
-            ];
+                'return_start' => $scheduleData->return_start,
+                'return_end' => $scheduleData->return_end
+            );
 
-        } else {
-            // 4) Merge with existing pump schedule
-            $selectedPump = $scheduleData->selected_order_pump_schedules[$key];
+       }  
+       else {
 
-            $selectedPump['trip']++;
+            $selectedPump = $scheduleData->selected_order_pump_schedules[$scheduleData->pouring_pump['pump']['pump_name']];
+            $selectedPump['trip'] ++;
             $selectedPump['batching_qty'] += $scheduleData->batching_qty;
 
-            // Apply buffer on all start times
-            $selectedPump['delivery_start'] =
-                Carbon::parse($applyBuffer($scheduleData->delivery_time))->lt(Carbon::parse($selectedPump['delivery_start']))
-                ? $applyBuffer($scheduleData->delivery_time)
-                : $selectedPump['delivery_start'];
+            $selectedPump['delivery_start'] = $scheduleData->delivery_time->copy()->lt($selectedPump['delivery_start']) ? $scheduleData->delivery_time : $selectedPump['delivery_start'];
 
-            $selectedPump['travel_start'] =
-                Carbon::parse($applyBuffer($scheduleData->travel_start))->lt(Carbon::parse($selectedPump['travel_start']))
-                ? $applyBuffer($scheduleData->travel_start)
-                : $selectedPump['travel_start'];
-
-            $selectedPump['travel_end'] =
-                Carbon::parse($applyBuffer($scheduleData->travel_end))->gt(Carbon::parse($selectedPump['travel_end']))
-                ? $applyBuffer($scheduleData->travel_end)
-                : $selectedPump['travel_end'];
-
-            $selectedPump['qc_start'] =
-                Carbon::parse($applyBuffer($scheduleData->qc_start))->lt(Carbon::parse($selectedPump['qc_start']))
-                ? $applyBuffer($scheduleData->qc_start)
-                : $selectedPump['qc_start'];
-
-            $selectedPump['qc_end'] =
-                Carbon::parse($applyBuffer($scheduleData->qc_end))->gt(Carbon::parse($selectedPump['qc_end']))
-                ? $applyBuffer($scheduleData->qc_end)
-                : $selectedPump['qc_end'];
-
-            $selectedPump['insp_start'] =
-                Carbon::parse($applyBuffer($scheduleData->insp_start))->lt(Carbon::parse($selectedPump['insp_start']))
-                ? $applyBuffer($scheduleData->insp_start)
-                : $selectedPump['insp_start'];
-
-            $selectedPump['insp_end'] =
-                Carbon::parse($applyBuffer($scheduleData->insp_end))->gt(Carbon::parse($selectedPump['insp_end']))
-                ? $applyBuffer($scheduleData->insp_end)
-                : $selectedPump['insp_end'];
-
-            $selectedPump['pouring_start'] =
-                Carbon::parse($applyBuffer($scheduleData->pouring_start))->lt(Carbon::parse($selectedPump['pouring_start']))
-                ? $applyBuffer($scheduleData->pouring_start)
-                : $selectedPump['pouring_start'];
-
-            $selectedPump['pouring_end'] =
-                Carbon::parse($applyBuffer($scheduleData->pouring_end))->gt(Carbon::parse($selectedPump['pouring_end']))
-                ? $applyBuffer($scheduleData->pouring_end)
-                : $selectedPump['pouring_end'];
+            $selectedPump['travel_start'] = $scheduleData->travel_start->copy()->lt($selectedPump['travel_start']) ? $scheduleData->travel_start : $selectedPump['travel_start'];
+            $selectedPump['travel_end'] = $scheduleData->travel_end->copy()->lt($selectedPump['travel_end']) ? $scheduleData->travel_end : $selectedPump['travel_end'];
+            $selectedPump['qc_start'] = $scheduleData->qc_start->copy()->lt($selectedPump['qc_start']) ? $scheduleData->qc_start : $selectedPump['qc_start'];
+            $selectedPump['qc_end'] = $scheduleData->qc_end->copy()->lt($selectedPump['qc_end']) ? $scheduleData->qc_end : $selectedPump['qc_end'];
+            $selectedPump['insp_start'] = $scheduleData->insp_start->copy()->lt($selectedPump['insp_start']) ? $scheduleData->insp_start : $selectedPump['insp_start'];
+            $selectedPump['insp_end'] = $scheduleData->insp_end->copy()->lt($selectedPump['insp_end']) ? $scheduleData->insp_end : $selectedPump['insp_end'];
+            
+            $selectedPump['pouring_start'] = $scheduleData->pouring_start->copy()->lt($selectedPump['pouring_start']) ? $scheduleData->pouring_start : $selectedPump['pouring_start'];
+            $selectedPump['pouring_end'] = $scheduleData->pouring_end->copy()->gt($selectedPump['pouring_end']) ? $scheduleData->pouring_end : $selectedPump['pouring_end'];
 
             $selectedPump['pouring_time'] = Carbon::parse($selectedPump['pouring_end'])
-                ->diffInMinutes(Carbon::parse($selectedPump['pouring_start']));
+                                ->diffInMinutes(Carbon::parse($selectedPump['pouring_start']));
 
-            $selectedPump['cleaning_start'] =
-                Carbon::parse($applyBuffer($scheduleData->cleaning_start))->lt(Carbon::parse($selectedPump['cleaning_start']))
-                ? $applyBuffer($scheduleData->cleaning_start)
-                : $selectedPump['cleaning_start'];
+            // $selectedPump['pouring_time'] = $selectedPump['pouring_time'] + $scheduleData->pouring_time + $orderInterval ;
 
-            $selectedPump['cleaning_end'] =
-                Carbon::parse($applyBuffer($scheduleData->cleaning_end))->gt(Carbon::parse($selectedPump['cleaning_end']))
-                ? $applyBuffer($scheduleData->cleaning_end)
-                : $selectedPump['cleaning_end'];
+            $selectedPump['cleaning_start'] = $scheduleData->cleaning_start->copy()->gt($selectedPump['cleaning_start']) ? $scheduleData->cleaning_start : $selectedPump['cleaning_start'];
+            $selectedPump['cleaning_end'] = $scheduleData->cleaning_end->copy()->gt($selectedPump['cleaning_end']) ? $scheduleData->cleaning_end : $selectedPump['cleaning_end'];
 
-            $selectedPump['return_start'] =
-                Carbon::parse($applyBuffer($scheduleData->return_start))->lt(Carbon::parse($selectedPump['return_start']))
-                ? $applyBuffer($scheduleData->return_start)
-                : $selectedPump['return_start'];
+            $selectedPump['return_start'] = $scheduleData->return_start->copy()->gt($selectedPump['return_start']) ? $scheduleData->return_start : $selectedPump['return_start'];
+            $selectedPump['return_end'] = $scheduleData->return_end->copy()->gt($selectedPump['return_end']) ? $scheduleData->return_end : $selectedPump['return_end'];
+            $scheduleData->selected_order_pump_schedules[$scheduleData->pouring_pump['pump']['pump_name']] = $selectedPump;
 
-            $selectedPump['return_end'] =
-                Carbon::parse($applyBuffer($scheduleData->return_end))->gt(Carbon::parse($selectedPump['return_end']))
-                ? $applyBuffer($scheduleData->return_end)
-                : $selectedPump['return_end'];
-
-            $scheduleData->selected_order_pump_schedules[$key] = $selectedPump;
         }
     }
 
