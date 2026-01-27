@@ -7,6 +7,7 @@ use App\Models\Pump;
 use App\Models\SelectedOrder;
 use App\Models\OrderPump;
 use Carbon\Carbon;
+use Illuminate\Support\Facades\Log;
 
 class PumpHelper
 {
@@ -42,149 +43,163 @@ class PumpHelper
     }
 
 
-    public static function getAvailablePumps($pumps, $order_id, $company, $pump_start_time, $pump_end_time, $pump_cap, $trip, $selected_order_pump_schedules, $location_end_time, $pump_qty, $location = null, $assinedPump = null, $assinedPumps = array())
-    {
 
-        try {
+public static function getAvailablePumps(
+    $pumps,
+    $order_id,
+    $company,
+    $pump_start_time,
+    $pump_end_time,
+    $pump_cap,
+    $trip,
+    $selected_order_pump_schedules,
+    $location_end_time,
+    $pump_qty,
+    $location = null,
+    $assinedPump = null,
+    $assinedPumps = array()
+) {
+    try {
 
-            $data = null;
-            $index = null;
+        $data  = null;
+        $index = null;
 
+        $order = SelectedOrder::find($order_id);
 
-            $order = SelectedOrder::find($order_id);
+        $capacities   = OrderPump::where('order_id', $order->og_order_id)
+            ->pluck('quantity', 'capacity')->toArray();
 
-            $capacities = OrderPump::where('order_id', $order->og_order_id)->pluck('quantity', 'capacity')->toArray();
+        $capacityKeys = array_keys($capacities);
 
-            $capacityKeys = array_keys($capacities);
+        $totalAssignedPumps = $assinedPump
+            ? collect($assinedPump)->flatten()->toArray()
+            : [];
 
-            // dd(collect($assinedPump)->flatten()->toArray());
-            $totalAssignedPumps = $assinedPump ? collect($assinedPump)->flatten()->toArray() : [];
-            // if($order->order_no == 114512 && $trip > 2){
-            //     // dd($location,$pumps, $assinedPumps,$assinedPump);
-            //         dd($totalAssignedPumps);
-            // }
-            // dd($capacityKeys);
+        /* ===== helper: detect time or datetime ===== */
+        $makeDateTime = function ($date, $value) {
+            if (!$value) return null;
 
-            foreach ($pumps as $pumpKey => $pump) {
-                $installMinutes = $pump['installation_time'] ?? 10;
-                $travelMinutes = $order->travel_to_site ?? 0;
-
-
-
-                $pumpCount = is_array($pumps) ? count($pumps) : $pumps->count();
-
-                if ($pumpCount == 1)
-                    $subMinutes = ($installMinutes + $travelMinutes) * 2;
-                else
-                    $subMinutes = $installMinutes + $travelMinutes;
-
-
-                $pump_start_time = Carbon::parse($pump_start_time)
-                    ->subMinutes($subMinutes)->format('Y-m-d H:i:s');
-
-
-
-                if (!in_array($pump['pump_capacity'], $capacityKeys)) {
-
-                    continue;
-                }
-                if (count($totalAssignedPumps) && !in_array($pump['pump_name'], $totalAssignedPumps)) {
-
-                    if (isset($assinedPump[$pump['pump_capacity']]) && count($assinedPump[$pump['pump_capacity']]) >= $capacities[$pump['pump_capacity']]) {
-                        continue;
-                    }
-                }
-
-                if (count($assinedPumps) && !in_array($pump['pump_name'], $assinedPumps)) {
-                    continue;
-                }
-
-                if ($pump['location'] && $location && $pump['location'] != $location) {
-                    continue;
-                }
-                if (Carbon::parse($pump['free_from'])->gt(Carbon::parse($pump_start_time)))
-                    continue;
-
-                if (Carbon::parse($pump['free_from'])->gt($pump_end_time))
-                    continue;
-
-                if (Carbon::parse($pump['free_upto'])->lt(Carbon::parse($pump_start_time)))
-                    continue;
-
-                if (Carbon::parse($pump['free_upto'])->lt($pump_end_time))
-                    continue;
-
-                $data = $pump;
-                $index = $pumpKey;
-                break;
+            // already has date
+            if (preg_match('/\d{4}-\d{2}-\d{2}/', $value)) {
+                return Carbon::parse($value);
             }
 
-            // dd($order_id, $data, $pump_start_time, $pump_end_time, $trip);
+            // only time -> attach date
+            return Carbon::parse("$date $value");
+        };
 
-            // if( $trip == 115)
-            //     dd($pumps, $pump_start_time, $pump_end_time, $data, $index, $assinedPumps);
+        /* ================= FIRST LOOP ================= */
+        foreach ($pumps as $pumpKey => $pump) {
 
-            if ($data) {
-                return ['pump' => $data, 'index' => $index];
-            }
+            $installMinutes = $pump['installation_time'] ?? 10;
+            $travelMinutes  = $order->travel_to_site ?? 0;
 
-            // if( $pump_start_time->gt(Carbon::parse("2025-03-01 22:00:00"))) {
-            //     dd($order_id, $data, $pump_start_time, $pump_end_time, $trip);
-            // }
+            $pumpCount = is_array($pumps) ? count($pumps) : $pumps->count();
 
-            // if pump limit already reached 
+            $subMinutes = ($pumpCount == 1)
+                ? ($installMinutes + $travelMinutes) * 2
+                : ($installMinutes + $travelMinutes);
 
 
-            //  If no assigned pump is available, choose another pump
-            foreach ($pumps as $pumpKey => $pump) {
+            $new_pump_start = $pump_start_time;
 
-                if (!in_array($pump['pump_capacity'], $capacityKeys)) {
+            // $new_pump_start = Carbon::parse($pump_start_time)
+            //     ->subMinutes($subMinutes)
+            //     ->format('Y-m-d H:i:s');
 
+            // Log::info("Checking Pump", [
+            //     'order' => $order->order_no,
+            //     'trip' => $trip,
+            //     'pump' => $pump['pump_name'],
+            //     'start' => $pump_start_time,
+            //     'end' => $pump_end_time,
+            //     'new_start' => $new_pump_start
+            // ]);
+
+            /* ---- capacity & assignment ---- */
+            if (!in_array($pump['pump_capacity'], $capacityKeys)) continue;
+
+            if (count($totalAssignedPumps) && !in_array($pump['pump_name'], $totalAssignedPumps)) {
+                if (isset($assinedPump[$pump['pump_capacity']]) &&
+                    count($assinedPump[$pump['pump_capacity']]) >= $capacities[$pump['pump_capacity']]) {
                     continue;
                 }
-                if (count($totalAssignedPumps) && !in_array($pump['pump_name'], $totalAssignedPumps)) {
-                    if (isset($assinedPump[$pump['pump_capacity']]) && count($assinedPump[$pump['pump_capacity']]) >= $capacities[$pump['pump_capacity']]) {
-                        continue;
-                    }
-                }
-
-                if ($pump['location'] && $location && $pump['location'] != $location) {
-                    continue;
-                }
-
-                if (Carbon::parse($pump['free_from'])->gt(Carbon::parse($pump_start_time)))
-                    continue;
-
-                if (Carbon::parse($pump['free_from'])->gt($pump_end_time))
-                    continue;
-
-                if (Carbon::parse($pump['free_upto'])->lt(Carbon::parse($pump_start_time)))
-                    continue;
-
-                if (Carbon::parse($pump['free_upto'])->lt($pump_end_time))
-                    continue;
-
-
-                $data = $pump;
-                $index = $pumpKey;
-                // echo "[BREAK]";
-                break;
             }
 
+            if (count($assinedPumps) && !in_array($pump['pump_name'], $assinedPumps)) continue;
 
-            if (isset($data) && $data) {
+            if ($pump['location'] && $location && $pump['location'] != $location) continue;
 
-                return ['pump' => $data, 'index' => $index];
-            } else {
-                return null;
-            }
+            /* ---- SAFE TIME CHECK ---- */
+            $orderDate = Carbon::parse($new_pump_start)->toDateString();
 
-        } catch (\Exception $e) {
+            $freeFrom = $makeDateTime($orderDate, $pump['free_from']);
+            $freeUpto = $makeDateTime($orderDate, $pump['free_upto']);
+            $start    = Carbon::parse($new_pump_start);
+            $end      = Carbon::parse($pump_end_time);
 
-            // dd($pumps, $e);
+            if ($freeFrom && $freeFrom->gt($start)) continue;
+            if ($freeUpto && $freeUpto->lt($start)) continue;
+            if ($freeUpto && $freeUpto->lt($end)) continue;
+
+            /* ---- AVAILABLE ---- */
+            $data = $pump;
+            $index = $pumpKey;
+            $pump_start_time = $new_pump_start;
+            break;
         }
 
+        if ($data) {
+            return [
+                'pump' => $data,
+                'index' => $index,
+                'pump_start_time' => $pump_start_time
+            ];
+        }
+
+        /* ================= SECOND LOOP ================= */
+        foreach ($pumps as $pumpKey => $pump) {
+
+            if (!in_array($pump['pump_capacity'], $capacityKeys)) continue;
+
+            if (count($totalAssignedPumps) && !in_array($pump['pump_name'], $totalAssignedPumps)) {
+                if (isset($assinedPump[$pump['pump_capacity']]) &&
+                    count($assinedPump[$pump['pump_capacity']]) >= $capacities[$pump['pump_capacity']]) {
+                    continue;
+                }
+            }
+
+            if ($pump['location'] && $location && $pump['location'] != $location) continue;
+
+            $orderDate = Carbon::parse($pump_start_time)->toDateString();
+
+            $freeFrom = $makeDateTime($orderDate, $pump['free_from']);
+            $freeUpto = $makeDateTime($orderDate, $pump['free_upto']);
+            $start    = Carbon::parse($pump_start_time);
+            $end      = Carbon::parse($pump_end_time);
+
+            if ($freeFrom && $freeFrom->gt($start)) continue;
+            if ($freeUpto && $freeUpto->lt($start)) continue;
+            if ($freeUpto && $freeUpto->lt($end)) continue;
+
+            $data = $pump;
+            $index = $pumpKey;
+            break;
+        }
+
+        return $data ? ['pump' => $data, 'index' => $index] : null;
+
+    } catch (\Exception $e) {
+        Log::error('getAvailablePumps error', [
+            'order_id' => $order_id,
+            'trip' => $trip,
+            'error' => $e->getMessage()
+        ]);
+        return null;
     }
+}
+
+
 
 
     public static function searchAndUpdateArray($arrayOfArrays, $searchCriteria, $updateValues)
