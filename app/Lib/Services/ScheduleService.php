@@ -1043,19 +1043,23 @@ class ScheduleService
     private function generatePumpSchedule(ScheduleData &$scheduleData, $order)
     {
         // 1) Buffer calculation
-       $subMinutes = $scheduleData->pouring_pump['pump']['installation_time'] ?? 10;
-       $subMinutes = $subMinutes + 1;
-        
+        $installMinutes = $scheduleData->pouring_pump['pump']['installation_time'] ?? 10;
+        $travelMinutes = $scheduleData->travel_time ?? 0;
+
+        $pumpCount = count($scheduleData->selected_order_pump_schedules) ?: 1;
+
+        $subMinutes = ($pumpCount == 1)
+            ? ($installMinutes + $travelMinutes) * 2
+            : ($installMinutes + $travelMinutes);
+
         // 2) Helper to apply buffer
         $applyBuffer = function ($time) use ($subMinutes) {
             return $time
                 ? \Carbon\Carbon::parse($time)->subMinutes($subMinutes)->format('Y-m-d H:i:s')
                 : null;
         };
-    
 
         $key = $scheduleData->pouring_pump['pump']['pump_name'];
-        
 
         // 3) First-time pump
         if (!isset($scheduleData->selected_order_pump_schedules[$key])) {
@@ -1067,8 +1071,6 @@ class ScheduleService
                 'cust_product_id' => $order->customer_product_id,
                 'trip' => 1,
                 'batching_qty' => $scheduleData->batching_qty,
-                //'install_time' => $scheduleData->pouring_pump['pump']['installation_time'],
-
 
                 'qc_start' => $applyBuffer($scheduleData->qc_start),
                 'qc_time' => $scheduleData->qc_time,
@@ -1177,10 +1179,8 @@ class ScheduleService
                 Carbon::parse($applyBuffer($scheduleData->return_end))->gt(Carbon::parse($selectedPump['return_end']))
                 ? $applyBuffer($scheduleData->return_end)
                 : $selectedPump['return_end'];
-            
-                $selectedPump['install_time'] = $selectedPump['install_time']??10;
 
-          
+            $scheduleData->selected_order_pump_schedules[$key] = $selectedPump;
         }
     }
 
