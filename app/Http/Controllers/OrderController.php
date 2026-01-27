@@ -13,6 +13,7 @@ use App\Helpers\OrderApprovalHelper;
 use App\Helpers\OrderHelper;
 use App\Helpers\OrderScheduleHelper;
 use App\Helpers\V2\OrderScheduleHelper as OrderScheduleHelperV2;
+
 use App\Helpers\PumpHelper;
 use App\Helpers\RouteConstantHelper;
 use App\Helpers\TransitMixerHelper;
@@ -155,19 +156,19 @@ class OrderController extends Controller
         }
     }
 
-    public function editOrder(Request $request, String $orderId)
+    public function editOrder(Request $request, string $orderId)
     {
         try {
             $order = Order::with('approvals')->find($orderId);
             if (isset($order)) {
                 //Retrieve all companies of user
-		    $user = auth()->user();
+                $user = auth()->user();
                 $groupCompanies = $user->access_rights?->pluck('group_company_id');
                 $defaultGroupCompany = $user->group_company_id;
                 $groupCompaniesId = $groupCompanies->toArray();
                 $groupCompanies = GroupCompany::select('id', 'id AS value', 'comp_name AS label')->whereIn('id', $groupCompaniesId)->where('status', ConstantHelper::ACTIVE)->orderByDesc('id')->get();
                 $canApprove = false;
-		$approvalSetup = ApprovalSetup::where('group_company_id', auth()->user()->group_company_id)->first();
+                $approvalSetup = ApprovalSetup::where('group_company_id', auth()->user()->group_company_id)->first();
                 $approvalLevels = ApprovalLevel::where('approval_setup_id', $approvalSetup->id)->orderBy('level_no')->get();
                 $access = $approvalLevels->firstWhere('user_id', $user->id);
                 $approvalDropdownStatuses = [
@@ -264,11 +265,11 @@ class OrderController extends Controller
             } else {
                 return redirect()->back()->with('warning', "Order doesn't exist");
             }
-	} catch (Exception $ex) {
+        } catch (Exception $ex) {
             dd($ex->getMessage());
         }
     }
-    public function editliveSchedule(Request $request, String $orderId)
+    public function editliveSchedule(Request $request, string $orderId)
     {
         try {
             $order = LiveOrder::with('approvals')->find($orderId);
@@ -382,7 +383,7 @@ class OrderController extends Controller
         }
     }
 
-    public function getCompanyMastersForOrderCreation(String $groupCompanyId)
+    public function getCompanyMastersForOrderCreation(string $groupCompanyId)
     {
         try {
             $authUser = auth()->user();
@@ -445,7 +446,8 @@ class OrderController extends Controller
 
             DB::beginTransaction();
             OrderScheduleHelper::deleteUserSchedules($request->company_id, $user_id);
-            $orders = Order::ByCompanyScheduleDate($request->company_id, $shift_start, $shift_end)->get()->toArray();
+            $orders = Order::ByCompanyScheduleDate($request->company_id, $shift_start, $shift_end)
+                ->get()->toArray();
 
             $published_flag = false;
 
@@ -506,13 +508,12 @@ class OrderController extends Controller
 
             foreach ($orders as $order) {
 
-               $travelToSiteDistance =CustomerProjectSiteHelper::assignDistance($order->company_location_id,$order->site_id,'site');
-            //    dd($travelToSiteDistance);
+                $travelToSiteDistance = CustomerProjectSiteHelper::assignDistance($order->company_location_id, $order->site_id, 'site');
+                //    dd($travelToSiteDistance);
 // dump($travelToSiteDistance);
-               if((isset($travelToSiteDistance['rows'][0]['elements'][0]['distance']['value'])) &&($travelToSiteDistance['rows'][0]['elements'][0]['distance']['value']<=300000))
-{   
+                if ((isset($travelToSiteDistance['rows'][0]['elements'][0]['distance']['value'])) && ($travelToSiteDistance['rows'][0]['elements'][0]['distance']['value'] <= 300000)) {
                     $durationInSec = $travelToSiteDistance['rows'][0]['elements'][0]['duration']['value'];
-                    $durationInMinutes =  round($durationInSec / 60);
+                    $durationInMinutes = round($durationInSec / 60);
 
                     $order->travel_to_site = intval($durationInMinutes);
                 } else {
@@ -621,7 +622,7 @@ class OrderController extends Controller
                 'groupCompany' => $groupCompany
             ]);
         } catch (Exception $ex) {
-            return redirect()->back()->with(ConstantHelper::ERROR,  __("message.internal_server_error"));
+            return redirect()->back()->with(ConstantHelper::ERROR, __("message.internal_server_error"));
         }
     }
     //Update selected Orders
@@ -666,15 +667,16 @@ class OrderController extends Controller
             // return view('components.orders.generate_order_step_3');
             return redirect()->route(
 
-                RouteConstantHelper::ORDER_SCHEDULE_STEP_3, [
-                'schedule_date' => $request->schedule_date,
-                'company_id' => $request->company_id
-            ]
+                RouteConstantHelper::ORDER_SCHEDULE_STEP_3,
+                [
+                    'schedule_date' => $request->schedule_date,
+                    'company_id' => $request->company_id
+                ]
 
             )->with(ConstantHelper::SUCCESS, __("message.update_success", ['static' => __("static.orders")]));
         } catch (Exception $ex) {
-            
-            return redirect()->back()->with(ConstantHelper::ERROR,  __("message.internal_server_error"));
+
+            return redirect()->back()->with(ConstantHelper::ERROR, __("message.internal_server_error"));
         }
     }
     public function orderScheduleView(Request $request)
@@ -690,53 +692,60 @@ class OrderController extends Controller
             $shift_end = $company_shifts['end_time'];
 
             $order_shift_start = Carbon::parse($shift_start)->subDay()->format(ConstantHelper::SQL_DATE_TIME);
-            
+
 
             $orders = SelectedOrder::with(['schedule', 'pump_schedule'])
                 ->byUserCompanyScheduleDate($request->company_id, auth()->user()->id, $shift_start, $shift_end)
                 // -> where("selected", true) -> orderByRaw('start_time IS NULL, start_time ASC') -> get();
-                ->where("selected", true)->orderBy('delivery_date')->orderBy("id")->get();
-            
+                ->where("selected", true)
+                ->orderBy('delivery_date')
+                ->orderBy("quantity",'desc')
+                ->orderBy('start_time','asc')->get();
+
             //Batching Plant
             $schedulesBP = SelectedOrderSchedule::rightJoin("batching_plants", function ($query) {
                 $query->on("batching_plants.plant_name", "=", "selected_order_schedules.batching_plant");
             })->select(
-                "batching_plants.capacity",
-                "selected_order_schedules.schedule_date",
-                "selected_order_schedules.order_no",
-                "selected_order_schedules.mix_code",
-                "selected_order_schedules.location",
-                "selected_order_schedules.trip",
-                "selected_order_schedules.batching_qty",
-                "selected_order_schedules.batching_plant",
-                "selected_order_schedules.loading_time",
-                "selected_order_schedules.loading_start",
-                "selected_order_schedules.loading_end",
-                "selected_order_schedules.id"
-            )
-	      ->where("selected_order_schedules.group_company_id", $request->company_id)
-	      ->where("selected_order_schedules.user_id", auth()->user()->id)
-	      ->whereBetween("selected_order_schedules.loading_start",  [$shift_start, $shift_end])
-	      ->orderBy("selected_order_schedules.id")->get()->toArray();
+                    "batching_plants.capacity",
+                    "selected_order_schedules.schedule_date",
+                    "selected_order_schedules.order_no",
+                    "selected_order_schedules.mix_code",
+                    "selected_order_schedules.location",
+                    "selected_order_schedules.trip",
+                    "selected_order_schedules.batching_qty",
+                    "selected_order_schedules.batching_plant",
+                    "selected_order_schedules.loading_time",
+                    "selected_order_schedules.loading_start",
+                    "selected_order_schedules.loading_end",
+                    "selected_order_schedules.id"
+                )
+                ->where("selected_order_schedules.group_company_id", $request->company_id)
+                ->where("selected_order_schedules.user_id", auth()->user()->id)
+                ->whereBetween("selected_order_schedules.loading_start", [$shift_start, $shift_end])
+                //->orderBy("selected_order_schedules.id")
+                ->get()->toArray();
             // dd($schedulesBP);
             $startTime = Carbon::parse($shift_start)->format("H:i");
             $endTime = (Carbon::parse($startTime)->addHours(39)->addMinutes(59))->format("H:i");
-// dd($orders);
+            // dd($orders);
             $result = OrderHelper::orderGraphData($orders->toArray(), $startTime, $endTime, $request->schedule_date, count($schedulesBP), $schedulesBP);
-
+         
             //Batching Plant
             $bpScheduleGap = BatchingPlantAvailability::rightJoin("batching_plants", function ($query) {
                 $query->on("batching_plants.plant_name", "=", "batching_plant_availability.plant_name");
             })->select(
-                "batching_plants.capacity",
-                "batching_plant_availability.location",
-                "batching_plant_availability.plant_name",
-                "batching_plant_availability.free_from",
-                "batching_plant_availability.free_upto",
-                "batching_plant_availability.reason",
-                "batching_plant_availability.id"
-            )
-                ->where("batching_plant_availability.group_company_id", $request->company_id)->where("batching_plant_availability.user_id", auth()->user()->id)->orderBy("batching_plant_availability.free_from")->get()->toArray();
+                    "batching_plants.capacity",
+                    "batching_plant_availability.location",
+                    "batching_plant_availability.plant_name",
+                    "batching_plant_availability.free_from",
+                    "batching_plant_availability.free_upto",
+                    "batching_plant_availability.reason",
+                    "batching_plant_availability.id"
+                )
+                ->where("batching_plant_availability.group_company_id", $request->company_id)
+                ->where("batching_plant_availability.user_id", auth()->user()->id)
+                ->orderBy("batching_plant_availability.free_from")
+                ->get()->toArray();
 
 
             $resultBP = BatchingPlantHelper::batchingPlantSchedule($schedulesBP, $startTime, $endTime, $request->schedule_date, $bpScheduleGap);
@@ -745,77 +754,81 @@ class OrderController extends Controller
             $schedulesTM = SelectedOrderSchedule::join("transit_mixers", function ($query) {
                 $query->on("transit_mixers.truck_name", "=", "selected_order_schedules.transit_mixer");
             })->select(
-                "transit_mixers.truck_capacity",
-                "selected_order_schedules.schedule_date",
-                "selected_order_schedules.order_no",
-                "selected_order_schedules.location",
-                "selected_order_schedules.trip",
-                "selected_order_schedules.batching_qty",
-                "selected_order_schedules.transit_mixer",
-                "selected_order_schedules.qc_time",
-                "selected_order_schedules.qc_start",
-                "selected_order_schedules.qc_end",
-                "selected_order_schedules.loading_time",
-                "selected_order_schedules.loading_start",
-                "selected_order_schedules.loading_end",
-                "selected_order_schedules.travel_time",
-                "selected_order_schedules.travel_start",
-                "selected_order_schedules.travel_end",
-                "selected_order_schedules.insp_time",
-                "selected_order_schedules.insp_start",
-                "selected_order_schedules.insp_end",
-                "selected_order_schedules.pouring_time",
-                "selected_order_schedules.pouring_start",
-                "selected_order_schedules.pouring_end",
-                "selected_order_schedules.cleaning_time",
-                "selected_order_schedules.cleaning_start",
-                "selected_order_schedules.cleaning_end",
-                "selected_order_schedules.return_time",
-                "selected_order_schedules.return_start",
-                "selected_order_schedules.return_end",
-                "selected_order_schedules.id"
-            )
-                ->where("selected_order_schedules.group_company_id", $request->company_id)->where("selected_order_schedules.user_id", auth()->user()->id)->whereBetween("selected_order_schedules.loading_start",  [$shift_start, $shift_end])->orderBy("selected_order_schedules.loading_start")
-		->orderBy("selected_order_schedules.id")->get()->toArray();	    
-	   
-	    $resultTM = TransitMixerHelper::transitMixersSchedule($schedulesTM, $startTime, $endTime, $request->schedule_date);
+                    "transit_mixers.truck_capacity",
+                    "selected_order_schedules.schedule_date",
+                    "selected_order_schedules.order_no",
+                    "selected_order_schedules.location",
+                    "selected_order_schedules.trip",
+                    "selected_order_schedules.batching_qty",
+                    "selected_order_schedules.transit_mixer",
+                    "selected_order_schedules.qc_time",
+                    "selected_order_schedules.qc_start",
+                    "selected_order_schedules.qc_end",
+                    "selected_order_schedules.loading_time",
+                    "selected_order_schedules.loading_start",
+                    "selected_order_schedules.loading_end",
+                    "selected_order_schedules.travel_time",
+                    "selected_order_schedules.travel_start",
+                    "selected_order_schedules.travel_end",
+                    "selected_order_schedules.insp_time",
+                    "selected_order_schedules.insp_start",
+                    "selected_order_schedules.insp_end",
+                    "selected_order_schedules.pouring_time",
+                    "selected_order_schedules.pouring_start",
+                    "selected_order_schedules.pouring_end",
+                    "selected_order_schedules.cleaning_time",
+                    "selected_order_schedules.cleaning_start",
+                    "selected_order_schedules.cleaning_end",
+                    "selected_order_schedules.return_time",
+                    "selected_order_schedules.return_start",
+                    "selected_order_schedules.return_end",
+                    "selected_order_schedules.id"
+                )
+                ->where("selected_order_schedules.group_company_id", $request->company_id)->where("selected_order_schedules.user_id", auth()->user()->id)->whereBetween("selected_order_schedules.loading_start", [$shift_start, $shift_end])->orderBy("selected_order_schedules.loading_start")
+                // ->orderBy("selected_order_schedules.id")
+                ->get()->toArray();
+
+            $resultTM = TransitMixerHelper::transitMixersSchedule($schedulesTM, $startTime, $endTime, $request->schedule_date);
 
             //Pumps
             $schedulesPM = SelectedOrderPumpSchedule::join("pumps", function ($query) {
                 $query->on("pumps.pump_name", "=", "selected_order_pump_schedules.pump");
             })->select(
-                "pumps.pump_capacity",
-                "pumps.type",
-                "selected_order_pump_schedules.schedule_date",
-                "selected_order_pump_schedules.order_no",
-                "selected_order_pump_schedules.location",
-                "selected_order_pump_schedules.trip",
-                "selected_order_pump_schedules.batching_qty",
-                "selected_order_pump_schedules.pump",
-                "selected_order_pump_schedules.qc_time",
-                "selected_order_pump_schedules.qc_start",
-                "selected_order_pump_schedules.qc_end",
-                "selected_order_pump_schedules.travel_time",
-                "selected_order_pump_schedules.travel_start",
-                "selected_order_pump_schedules.travel_end",
-                "selected_order_pump_schedules.insp_time",
-                "selected_order_pump_schedules.insp_start",
-                "selected_order_pump_schedules.insp_end",
-                "selected_order_pump_schedules.pouring_time",
-                "selected_order_pump_schedules.pouring_start",
-                "selected_order_pump_schedules.pouring_end",
-                "selected_order_pump_schedules.cleaning_time",
-                "selected_order_pump_schedules.cleaning_start",
-                "selected_order_pump_schedules.cleaning_end",
-                "selected_order_pump_schedules.return_time",
-                "selected_order_pump_schedules.return_start",
-                "selected_order_pump_schedules.return_end",
-                "selected_order_pump_schedules.id"
-            )
-                ->where("selected_order_pump_schedules.group_company_id", $request->company_id)->where("selected_order_pump_schedules.user_id", auth()->user()->id)->whereBetween("selected_order_pump_schedules.qc_start",  [$shift_start, $shift_end])->orderBy("selected_order_pump_schedules.id")
-		->get()->toArray();
+                    "pumps.pump_capacity",
+                    "pumps.type",
+                    "selected_order_pump_schedules.schedule_date",
+                    "selected_order_pump_schedules.order_no",
+                    "selected_order_pump_schedules.location",
+                    "selected_order_pump_schedules.trip",
+                    "selected_order_pump_schedules.batching_qty",
+                    "selected_order_pump_schedules.pump",
+                    "selected_order_pump_schedules.qc_time",
+                    "selected_order_pump_schedules.qc_start",
+                    "selected_order_pump_schedules.qc_end",
+                    "selected_order_pump_schedules.travel_time",
+                    "selected_order_pump_schedules.travel_start",
+                    "selected_order_pump_schedules.travel_end",
+                    "selected_order_pump_schedules.insp_time",
+                    "selected_order_pump_schedules.insp_start",
+                    "selected_order_pump_schedules.insp_end",
+                    "selected_order_pump_schedules.pouring_time",
+                    "selected_order_pump_schedules.pouring_start",
+                    "selected_order_pump_schedules.pouring_end",
+                    "selected_order_pump_schedules.cleaning_time",
+                    "selected_order_pump_schedules.cleaning_start",
+                    "selected_order_pump_schedules.cleaning_end",
+                    "selected_order_pump_schedules.return_time",
+                    "selected_order_pump_schedules.return_start",
+                    "selected_order_pump_schedules.return_end",
+                    "selected_order_pump_schedules.id"
+                )
+                ->where("selected_order_pump_schedules.group_company_id", $request->company_id)
+                ->where("selected_order_pump_schedules.user_id", auth()->user()->id)
+                ->whereBetween("selected_order_pump_schedules.qc_start", [$shift_start, $shift_end])
+                //->orderBy("selected_order_pump_schedules.id")
+                ->get()->toArray();
             $resultPM = PumpHelper::pumpsSchedule($schedulesPM, $startTime, $endTime, $request->schedule_date);
-           
+
             return view("components.orders.order_schedule_match", [
                 'result' => $result,
                 'transit_mixer' => $resultTM,
@@ -828,7 +841,7 @@ class OrderController extends Controller
                 ]
             ]);
         } catch (Exception $ex) {
-//dd($ex);
+            //dd($ex);
             return view('components.common.internal_error', ['message' => $ex->getMessage()]);
         }
     }
@@ -923,7 +936,7 @@ class OrderController extends Controller
             $shift_end = $company_shifts['end_time'];
 
             $interval_deviation = isset($request->interval_deviation) ? $request->interval_deviation : 100;
-            $interval_deviation = (int)($interval_deviation);
+            $interval_deviation = (int) ($interval_deviation);
 
 
             // OrderScheduleHelper::initializeScheduleOld(
@@ -965,12 +978,12 @@ class OrderController extends Controller
             // ]);
             return response()->json([
                 'status' => ConstantHelper::SUCCESS,
-                'message' =>  __("message.action_success", ['static' => __("static.publish")])
+                'message' => __("message.action_success", ['static' => __("static.publish")])
             ]);
         } catch (Exception $ex) {
             return response()->json([
                 'status' => ConstantHelper::SUCCESS,
-                'message' =>  $ex
+                'message' => $ex
             ]);
             // return redirect() -> back() -> with(ConstantHelper::ERROR, __("message.internal_server_error"));
             dd($ex->getMessage() . $ex->getFile() . $ex->getLine());
@@ -1064,146 +1077,146 @@ class OrderController extends Controller
     }
 
     public function publishOrders(Request $request)
-{
-    $validator = (new Validator($request))->publishOrders();
-    if ($validator->fails()) {
-        return back()->withInput()->withErrors($validator);
-    }
+    {
+        $validator = (new Validator($request))->publishOrders();
+        if ($validator->fails()) {
+            return back()->withInput()->withErrors($validator);
+        }
 
-    DB::beginTransaction();
+        DB::beginTransaction();
 
-    try {
-        /* ===========================
-         |  SHIFT TIME
-         =========================== */
-        $companyShifts = GroupCompanyHelper::getShiftTime(
-            $request->group_company_id,
-            $request->schedule_date
-        );
+        try {
+            /* ===========================
+             |  SHIFT TIME
+             =========================== */
+            $companyShifts = GroupCompanyHelper::getShiftTime(
+                $request->group_company_id,
+                $request->schedule_date
+            );
 
-        $shiftStart = $companyShifts['start_time'];
-        $shiftEnd   = $companyShifts['end_time'];
+            $shiftStart = $companyShifts['start_time'];
+            $shiftEnd = $companyShifts['end_time'];
 
-        /* ===========================
-         |  FETCH SELECTED ORDERS
-         =========================== */
-        $orders = SelectedOrder::where('group_company_id', $request->group_company_id)
-            ->where('user_id', auth()->user()->id)
-            ->whereBetween('delivery_date', [$shiftStart, $shiftEnd])
-            ->where('selected', true)
-            ->get();
+            /* ===========================
+             |  FETCH SELECTED ORDERS
+             =========================== */
+            $orders = SelectedOrder::where('group_company_id', $request->group_company_id)
+                ->where('user_id', auth()->user()->id)
+                ->whereBetween('delivery_date', [$shiftStart, $shiftEnd])
+                ->where('selected', true)
+                ->get();
 
-        if ($orders->isEmpty()) {
+            if ($orders->isEmpty()) {
+                DB::commit();
+                return redirect()->back()
+                    ->with(ConstantHelper::WARNING, __('No orders found to publish'));
+            }
+
+            // 🔹 Needed for FK-safe deletes
+            $selectedOrderIds = $orders->pluck('id')->toArray();
+
+            /* ===========================
+             |  PROCESS EACH ORDER
+             =========================== */
+            foreach ($orders as $order) {
+
+                $currentOrder = Order::find($order->og_order_id);
+                if (!$currentOrder) {
+                    continue;
+                }
+
+                /* ===========================
+                 |  UPDATE MAIN ORDER
+                 =========================== */
+                $currentOrder->start_time = $order->start_time;
+                $currentOrder->end_time = $order->end_time;
+                $currentOrder->deviation = $order->deviation;
+                $currentOrder->published_by = auth()->user()->id;
+                $currentOrder->save();
+
+                /* ===========================
+                 |  ORDER SCHEDULES
+                 |  (OLD WORKING LOGIC)
+                 =========================== */
+                $selectedSchedules = SelectedOrderSchedule::where('order_id', $order->id)
+                    ->get()
+                    ->toArray();
+
+                foreach ($selectedSchedules as &$sch) {
+                    unset(
+                        $sch['id'],
+                        $sch['created_at'],
+                        $sch['updated_at'],
+                        $sch['user_id']
+                    );
+
+                    // map to actual order
+                    $sch['order_id'] = $currentOrder->id;
+                }
+
+                OrderSchedule::where('order_id', $currentOrder->id)->delete();
+
+                if (!empty($selectedSchedules)) {
+                    OrderSchedule::insert($selectedSchedules);
+                }
+
+                /* ===========================
+                 |  PUMP SCHEDULES
+                 |  (OLD WORKING LOGIC)
+                 =========================== */
+                $selectedPumpSchedules = SelectedOrderPumpSchedule::where('order_id', $order->id)
+                    ->get()
+                    ->toArray();
+
+                foreach ($selectedPumpSchedules as &$sch) {
+                    unset(
+                        $sch['id'],
+                        $sch['created_at'],
+                        $sch['updated_at'],
+                        $sch['user_id']
+                    );
+
+                    // map to actual order
+                    $sch['order_id'] = $currentOrder->id;
+                }
+
+                OrderPumpSchedule::where('order_id', $currentOrder->id)->delete();
+
+                if (!empty($selectedPumpSchedules)) {
+                    OrderPumpSchedule::insert($selectedPumpSchedules);
+                }
+            }
+
+            /* ===========================
+             |  FK SAFE DELETE
+             =========================== */
+            SelectedOrderSchedule::whereIn('order_id', $selectedOrderIds)->delete();
+            SelectedOrderPumpSchedule::whereIn('order_id', $selectedOrderIds)->delete();
+            SelectedOrder::whereIn('id', $selectedOrderIds)->delete();
+
             DB::commit();
+
+            return redirect()->route(
+                RouteConstantHelper::HOME,
+                ['group_company_id' => $request->group_company_id]
+            )->with(
+                    ConstantHelper::SUCCESS,
+                    __("message.action_success", ['static' => __("static.publish")])
+                );
+
+        } catch (\Exception $ex) {
+
+            DB::rollBack();
+
+            logger()->error('PublishOrdersV2 Failed', [
+                'error' => $ex->getMessage(),
+                'trace' => $ex->getTraceAsString(),
+            ]);
+
             return redirect()->back()
-                ->with(ConstantHelper::WARNING, __('No orders found to publish'));
+                ->with(ConstantHelper::ERROR, __("message.internal_server_error"));
         }
-
-        // 🔹 Needed for FK-safe deletes
-        $selectedOrderIds = $orders->pluck('id')->toArray();
-
-        /* ===========================
-         |  PROCESS EACH ORDER
-         =========================== */
-        foreach ($orders as $order) {
-
-            $currentOrder = Order::find($order->og_order_id);
-            if (!$currentOrder) {
-                continue;
-            }
-
-            /* ===========================
-             |  UPDATE MAIN ORDER
-             =========================== */
-            $currentOrder->start_time   = $order->start_time;
-            $currentOrder->end_time     = $order->end_time;
-            $currentOrder->deviation    = $order->deviation;
-            $currentOrder->published_by = auth()->user()->id;
-            $currentOrder->save();
-
-            /* ===========================
-             |  ORDER SCHEDULES
-             |  (OLD WORKING LOGIC)
-             =========================== */
-            $selectedSchedules = SelectedOrderSchedule::where('order_id', $order->id)
-                ->get()
-                ->toArray();
-
-            foreach ($selectedSchedules as &$sch) {
-                unset(
-                    $sch['id'],
-                    $sch['created_at'],
-                    $sch['updated_at'],
-                    $sch['user_id']
-                );
-
-                // map to actual order
-                $sch['order_id'] = $currentOrder->id;
-            }
-
-            OrderSchedule::where('order_id', $currentOrder->id)->delete();
-
-            if (!empty($selectedSchedules)) {
-                OrderSchedule::insert($selectedSchedules);
-            }
-
-            /* ===========================
-             |  PUMP SCHEDULES
-             |  (OLD WORKING LOGIC)
-             =========================== */
-            $selectedPumpSchedules = SelectedOrderPumpSchedule::where('order_id', $order->id)
-                ->get()
-                ->toArray();
-
-            foreach ($selectedPumpSchedules as &$sch) {
-                unset(
-                    $sch['id'],
-                    $sch['created_at'],
-                    $sch['updated_at'],
-                    $sch['user_id']
-                );
-
-                // map to actual order
-                $sch['order_id'] = $currentOrder->id;
-            }
-
-            OrderPumpSchedule::where('order_id', $currentOrder->id)->delete();
-
-            if (!empty($selectedPumpSchedules)) {
-                OrderPumpSchedule::insert($selectedPumpSchedules);
-            }
-        }
-
-        /* ===========================
-         |  FK SAFE DELETE
-         =========================== */
-        SelectedOrderSchedule::whereIn('order_id', $selectedOrderIds)->delete();
-        SelectedOrderPumpSchedule::whereIn('order_id', $selectedOrderIds)->delete();
-        SelectedOrder::whereIn('id', $selectedOrderIds)->delete();
-
-        DB::commit();
-
-        return redirect()->route(
-            RouteConstantHelper::HOME,
-            ['group_company_id' => $request->group_company_id]
-        )->with(
-            ConstantHelper::SUCCESS,
-            __("message.action_success", ['static' => __("static.publish")])
-        );
-
-    } catch (\Exception $ex) {
-
-        DB::rollBack();
-
-        logger()->error('PublishOrdersV2 Failed', [
-            'error' => $ex->getMessage(),
-            'trace' => $ex->getTraceAsString(),
-        ]);
-
-        return redirect()->back()
-            ->with(ConstantHelper::ERROR, __("message.internal_server_error"));
     }
-}
 
 
 
@@ -1222,7 +1235,7 @@ class OrderController extends Controller
             $shift_end = $company_shifts['end_time'];
 
             $orders = SelectedOrder::where("group_company_id", $request->group_company_id)->where("user_id", auth()->user()->id)
-                ->whereBetween("delivery_date",  [$shift_start, $shift_end])
+                ->whereBetween("delivery_date", [$shift_start, $shift_end])
                 ->where("selected", true);
 
             $orders_array = $orders->get()->toArray();
@@ -1271,7 +1284,7 @@ class OrderController extends Controller
                     // ]);
 
                     $schedules = SelectedOrderSchedule::where("group_company_id", $request->group_company_id)->where("user_id", auth()->user()->id)
-                        ->whereBetween("loading_start",  [$shift_start, $shift_end])->where("order_no", $order['order_no']);
+                        ->whereBetween("loading_start", [$shift_start, $shift_end])->where("order_no", $order['order_no']);
                     $schedules_array = $schedules->get()->toArray();
                     foreach ($schedules_array as &$order_sch) {
                         unset($order_sch['id']);
@@ -1284,7 +1297,7 @@ class OrderController extends Controller
                     OrderSchedule::insert($schedules_array);
                     $schedules->delete();
                     $selected_order_pump_schedules = SelectedOrderPumpSchedule::where("group_company_id", $request->group_company_id)->where("user_id", auth()->user()->id)
-                        ->whereBetween("qc_start",  [$shift_start, $shift_end])->where("order_no", $order['order_no']);
+                        ->whereBetween("qc_start", [$shift_start, $shift_end])->where("order_no", $order['order_no']);
                     $selected_order_pump_schedules_array = $selected_order_pump_schedules->get()->toArray();
                     foreach ($selected_order_pump_schedules_array as &$pump_order_sch) {
                         unset($pump_order_sch['id']);
@@ -1342,20 +1355,20 @@ class OrderController extends Controller
             $schedulesBP = LiveOrderSchedule::rightJoin("batching_plants", function ($query) {
                 $query->on("batching_plants.plant_name", "=", "live_order_schedules.batching_plant");
             })->select(
-                "batching_plants.capacity",
-                "live_order_schedules.schedule_date",
-                "live_order_schedules.order_no",
-                "live_order_schedules.mix_code",
-                "live_order_schedules.location",
-                "live_order_schedules.trip",
-                "live_order_schedules.batching_qty",
-                "live_order_schedules.batching_plant",
-                "live_order_schedules.planned_loading_time",
-                "live_order_schedules.planned_loading_start",
-                "live_order_schedules.planned_loading_end",
-                "live_order_schedules.id"
-            )
-                ->where("live_order_schedules.group_company_id", $request->company_id)->whereBetween("live_order_schedules.planned_loading_start",  [$shiftTimings['start_time'], $shiftTimings['end_time']])->orderBy("live_order_schedules.planned_loading_start")->get()->toArray();
+                    "batching_plants.capacity",
+                    "live_order_schedules.schedule_date",
+                    "live_order_schedules.order_no",
+                    "live_order_schedules.mix_code",
+                    "live_order_schedules.location",
+                    "live_order_schedules.trip",
+                    "live_order_schedules.batching_qty",
+                    "live_order_schedules.batching_plant",
+                    "live_order_schedules.planned_loading_time",
+                    "live_order_schedules.planned_loading_start",
+                    "live_order_schedules.planned_loading_end",
+                    "live_order_schedules.id"
+                )
+                ->where("live_order_schedules.group_company_id", $request->company_id)->whereBetween("live_order_schedules.planned_loading_start", [$shiftTimings['start_time'], $shiftTimings['end_time']])->orderBy("live_order_schedules.planned_loading_start")->get()->toArray();
 
             $batchingPlants = BatchingPlant::select('id AS value', 'plant_name AS label')->where([
                 ['group_company_id', $request->company_id],
@@ -1452,14 +1465,14 @@ class OrderController extends Controller
 
             //added by Ankit Sharma(2025-02-14) for trip remaining qty less than 8 CUM 
 
-                // $pouringTime = round($pouringTime/8,0);
+            // $pouringTime = round($pouringTime/8,0);
             //Add up all quantity from Temp Control
             $tempControlQty = 0;
-	    if ($request->is_temp_required && $request->is_temp_required == "on") {
-		    $tempControlQty = $orderQty;
-               // foreach ($request->temp_qty as $tmpCtrl) {
-               //     $tempControlQty += $tmpCtrl;
-               // }
+            if ($request->is_temp_required && $request->is_temp_required == "on") {
+                $tempControlQty = $orderQty;
+                // foreach ($request->temp_qty as $tmpCtrl) {
+                //     $tempControlQty += $tmpCtrl;
+                // }
             }
             if ($tempControlQty > $orderQty) {
                 return redirect()->back()->with(ConstantHelper::WARNING, "Temperature control quantity cannot be greater than total order quantity");

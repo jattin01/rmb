@@ -292,6 +292,67 @@
 														<td></td>
 														<td></td>
 													</tr>
+													@foreach ($res['pump_schedule'] as $psch)
+													<tr class = "schedule-graph-hidden schedule-graph-{{isset($res['order_no']) ? $res['order_no'] : ''}}">
+														<td>
+															<div class="d-flex align-items-center justify-content-between">
+																<div>
+																	Pump {{$psch['pump']}}
+																</div>
+
+																<div>
+																	<img src="{{asset('assets/img/light-info.svg')}}" alt="">
+																</div>
+															</div>
+														</td>
+														@php
+														$pOrderSchSlotTimeFlag = false;
+														@endphp
+														@foreach ($psch['resultData'] as $pschResData)
+
+														@php
+															$pOrderSchSlotTime = $pschResData['slot']['start_time'];
+															
+															if($pOrderSchSlotTime == '05 AM') {
+																$pOrderSchSlotTimeFlag = ($pOrderSchSlotTimeFlag);
+															}
+
+														@endphp
+														<td colspan="{{isset($pschResData['colspan']) ? $pschResData['colspan'] : 0}}">
+
+																@if (isset($pschResData['id']))
+																<div class="main-progressbox">
+																<div class="progress constructions-chart" style = "margin-left:{{$pschResData['start_minutes'] . 'px'}};">
+																	<div class="progress-bar pink" data-toggle="tooltip" data-placement="bottom" title="{{ Carbon\Carbon::parse($psch['qc_start']) -> format('h:i A') . ' to ' . Carbon\Carbon::parse($psch['qc_end']) -> format('h:i A') . ' (' . $psch['qc_time'] . ' mins)'}}" role="progressbar" style="padding : 0%; width :  {{$pschResData['qc_pixels'] ? $pschResData['qc_pixels'] . 'px' : '0%'}}"  aria-valuemin="0" aria-valuemax="100"></div>
+																	<div class="progress-bar purple" data-toggle="tooltip" data-placement="bottom" title="{{ Carbon\Carbon::parse($psch['travel_start']) -> format('h:i A') . ' to ' . Carbon\Carbon::parse($psch['travel_end']) -> format('h:i A') . ' (' . $psch['travel_time'] . ' mins)'}}" role="progressbar" style="padding : 0%; width :  {{$pschResData['travel_pixels'] ? $pschResData['travel_pixels'] . 'px' : '0%'}}"  aria-valuemin="0" aria-valuemax="100"></div>
+																	<div class="progress-bar dark-green" role="progressbar" data-toggle="tooltip" data-placement="bottom" title="{{ Carbon\Carbon::parse($psch['insp_start']) -> format('h:i A') . ' to ' . Carbon\Carbon::parse($psch['insp_end']) -> format('h:i A') . ' (' . $psch['insp_time'] . ' mins)'}}" style="padding : 0%; width :  {{$pschResData['insp_pixels'] ? $pschResData['insp_pixels'] . 'px' : '0%'}}"  aria-valuemin="0" aria-valuemax="100"></div>
+																	<div class="progress-bar dark-blue" role="progressbar" data-toggle="tooltip" data-placement="bottom" title="{{ Carbon\Carbon::parse($psch['pouring_start']) -> format('h:i A') . ' to ' . Carbon\Carbon::parse($psch['pouring_end']) -> format('h:i A') . ' (' . $psch['pouring_time'] . ' mins)'}}" style="padding : 0%; width :  {{$pschResData['pouring_pixels'] ? $pschResData['pouring_pixels'] . 'px' : '0%'}}"  aria-valuemin="0" aria-valuemax="100"></div>
+																	<div class="progress-bar nevy-blue" role="progressbar" data-toggle="tooltip" data-placement="bottom" title="{{ Carbon\Carbon::parse($psch['cleaning_start']) -> format('h:i A') . ' to ' . Carbon\Carbon::parse($psch['cleaning_end']) -> format('h:i A') . ' (' . $psch['cleaning_time'] . ' mins)'}}" style="padding : 0%; width :  {{$pschResData['cleaning_pixels'] ? $pschResData['cleaning_pixels'] . 'px' : '0%'}}"  aria-valuemin="0" aria-valuemax="100"></div>
+																	<div class="progress-bar light-green" role="progressbar" data-toggle="tooltip" data-placement="bottom" title="{{ Carbon\Carbon::parse($psch['return_start']) -> format('h:i A') . ' to ' . Carbon\Carbon::parse($psch['return_end']) -> format('h:i A') . ' (' . $psch['return_time'] . ' mins)'}}" style="padding : 0%; width :  {{$pschResData['return_pixels'] ? $pschResData['return_pixels'] . 'px' : '0%'}}"  aria-valuemin="0" aria-valuemax="100"></div>
+																</div>
+																</div>
+
+																<div class="stip-bgmainebox">
+																	@foreach ($pschResData['stripe'] as $pstripeSch)
+																		<span class="{{$pstripeSch % 2 !== 0 ? 'white-stip' : 'frist-stip' }} @if($pOrderSchSlotTimeFlag) green-stip @endif"></span>
+																	@endforeach
+																</div>
+																@else
+																<div class="stip-bgmainebox">
+																	<span class="white-stip @if($pOrderSchSlotTimeFlag) green-stip @endif"></span>
+																	<span class="frist-stip @if($pOrderSchSlotTimeFlag) green-stip @endif"></span>
+																	<span class="white-stip @if($pOrderSchSlotTimeFlag) green-stip @endif"></span>
+																	<span class="frist-stip @if($pOrderSchSlotTimeFlag) green-stip @endif"></span>
+																	<span class="white-stip @if($pOrderSchSlotTimeFlag) green-stip @endif"></span>
+																	<span class="frist-stip @if($pOrderSchSlotTimeFlag) green-stip @endif"></span>
+																</div>
+
+																@endif
+														</td>
+														@endforeach
+
+													</tr>
+													@endforeach
 
 													@foreach ($res['schedule'] as $sch)
 													<tr class = "schedule-graph-hidden schedule-graph-{{$res['order_no']}}" id = "schedule-{{$res['order_no']}}">
@@ -361,67 +422,7 @@
 													@endforeach
 													
 
-													@foreach ($res['pump_schedule'] as $psch)
-													<tr class = "schedule-graph-hidden schedule-graph-{{isset($res['order_no']) ? $res['order_no'] : ''}}">
-														<td>
-															<div class="d-flex align-items-center justify-content-between">
-																<div>
-																	Pump {{$psch['pump']}}
-																</div>
-
-																<div>
-																	<img src="{{asset('assets/img/light-info.svg')}}" alt="">
-																</div>
-															</div>
-														</td>
-														@php
-														$pOrderSchSlotTimeFlag = false;
-														@endphp
-														@foreach ($psch['resultData'] as $pschResData)
-
-														@php
-															$pOrderSchSlotTime = $pschResData['slot']['start_time'];
-															
-															if($pOrderSchSlotTime == '05 AM') {
-																$pOrderSchSlotTimeFlag = ($pOrderSchSlotTimeFlag);
-															}
-
-														@endphp
-														<td colspan="{{isset($pschResData['colspan']) ? $pschResData['colspan'] : 0}}">
-
-																@if (isset($pschResData['id']))
-																<div class="main-progressbox">
-																<div class="progress constructions-chart" style = "margin-left:{{$pschResData['start_minutes'] . 'px'}};">
-																	<div class="progress-bar pink" data-toggle="tooltip" data-placement="bottom" title="{{ Carbon\Carbon::parse($psch['qc_start']) -> format('h:i A') . ' to ' . Carbon\Carbon::parse($psch['qc_end']) -> format('h:i A') . ' (' . $psch['qc_time'] . ' mins)'}}" role="progressbar" style="padding : 0%; width :  {{$pschResData['qc_pixels'] ? $pschResData['qc_pixels'] . 'px' : '0%'}}"  aria-valuemin="0" aria-valuemax="100"></div>
-																	<div class="progress-bar purple" data-toggle="tooltip" data-placement="bottom" title="{{ Carbon\Carbon::parse($psch['travel_start']) -> format('h:i A') . ' to ' . Carbon\Carbon::parse($psch['travel_end']) -> format('h:i A') . ' (' . $psch['travel_time'] . ' mins)'}}" role="progressbar" style="padding : 0%; width :  {{$pschResData['travel_pixels'] ? $pschResData['travel_pixels'] . 'px' : '0%'}}"  aria-valuemin="0" aria-valuemax="100"></div>
-																	<div class="progress-bar dark-green" role="progressbar" data-toggle="tooltip" data-placement="bottom" title="{{ Carbon\Carbon::parse($psch['insp_start']) -> format('h:i A') . ' to ' . Carbon\Carbon::parse($psch['insp_end']) -> format('h:i A') . ' (' . $psch['insp_time'] . ' mins)'}}" style="padding : 0%; width :  {{$pschResData['insp_pixels'] ? $pschResData['insp_pixels'] . 'px' : '0%'}}"  aria-valuemin="0" aria-valuemax="100"></div>
-																	<div class="progress-bar dark-blue" role="progressbar" data-toggle="tooltip" data-placement="bottom" title="{{ Carbon\Carbon::parse($psch['pouring_start']) -> format('h:i A') . ' to ' . Carbon\Carbon::parse($psch['pouring_end']) -> format('h:i A') . ' (' . $psch['pouring_time'] . ' mins)'}}" style="padding : 0%; width :  {{$pschResData['pouring_pixels'] ? $pschResData['pouring_pixels'] . 'px' : '0%'}}"  aria-valuemin="0" aria-valuemax="100"></div>
-																	<div class="progress-bar nevy-blue" role="progressbar" data-toggle="tooltip" data-placement="bottom" title="{{ Carbon\Carbon::parse($psch['cleaning_start']) -> format('h:i A') . ' to ' . Carbon\Carbon::parse($psch['cleaning_end']) -> format('h:i A') . ' (' . $psch['cleaning_time'] . ' mins)'}}" style="padding : 0%; width :  {{$pschResData['cleaning_pixels'] ? $pschResData['cleaning_pixels'] . 'px' : '0%'}}"  aria-valuemin="0" aria-valuemax="100"></div>
-																	<div class="progress-bar light-green" role="progressbar" data-toggle="tooltip" data-placement="bottom" title="{{ Carbon\Carbon::parse($psch['return_start']) -> format('h:i A') . ' to ' . Carbon\Carbon::parse($psch['return_end']) -> format('h:i A') . ' (' . $psch['return_time'] . ' mins)'}}" style="padding : 0%; width :  {{$pschResData['return_pixels'] ? $pschResData['return_pixels'] . 'px' : '0%'}}"  aria-valuemin="0" aria-valuemax="100"></div>
-																</div>
-																</div>
-
-																<div class="stip-bgmainebox">
-																	@foreach ($pschResData['stripe'] as $pstripeSch)
-																		<span class="{{$pstripeSch % 2 !== 0 ? 'white-stip' : 'frist-stip' }} @if($pOrderSchSlotTimeFlag) green-stip @endif"></span>
-																	@endforeach
-																</div>
-																@else
-																<div class="stip-bgmainebox">
-																	<span class="white-stip @if($pOrderSchSlotTimeFlag) green-stip @endif"></span>
-																	<span class="frist-stip @if($pOrderSchSlotTimeFlag) green-stip @endif"></span>
-																	<span class="white-stip @if($pOrderSchSlotTimeFlag) green-stip @endif"></span>
-																	<span class="frist-stip @if($pOrderSchSlotTimeFlag) green-stip @endif"></span>
-																	<span class="white-stip @if($pOrderSchSlotTimeFlag) green-stip @endif"></span>
-																	<span class="frist-stip @if($pOrderSchSlotTimeFlag) green-stip @endif"></span>
-																</div>
-
-																@endif
-														</td>
-														@endforeach
-
-													</tr>
-													@endforeach
+													
 
 													<tr class="secound-table schedule-graph-hidden schedule-graph-{{isset($res['order_no']) ? $res['order_no'] : ''}}">
 														<td></td>
