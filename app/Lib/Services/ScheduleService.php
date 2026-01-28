@@ -90,6 +90,12 @@ class ScheduleData
     public $cleaning_end;
     public $return_start;
     public $return_end;
+    public $install_end;
+    public $install_start;
+    public $waiting_start;
+    public $waiting_end;
+    public $install_time;
+    public $waiting_time;
 
     public $delivery_time;
     public $return_time;
@@ -1057,6 +1063,12 @@ class ScheduleService
                 ? \Carbon\Carbon::parse($time)->subMinutes($bufferTime)
                 : null;
         };
+        
+        $scheduleData->install_start = $applyBuffer($scheduleData->insp_end);
+        $scheduleData->install_end = $scheduleData->install_start ? $scheduleData->install_start->copy()->addMinutes($installMinutes) : null;
+        $scheduleData->waiting_start = $scheduleData->install_end;
+        $scheduleData->waiting_time = $travelMinutes + $qcTime + $loadingTime;
+        $scheduleData->waiting_end = $scheduleData->waiting_start ? $scheduleData->waiting_start->copy()->addMinutes($scheduleData->waiting_time) : null;
 
       
 
@@ -1091,8 +1103,14 @@ class ScheduleService
                 'schedule_date' => $scheduleData->schedule_date,
                 'order_no' => $scheduleData->order_no,
                 'location' => $scheduleData->location,
-                'pouring_time' => $scheduleData->pouring_time + $bufferTime,
-                'pouring_start' => $applyBuffer($scheduleData->pouring_start),
+                'install_time' => $installMinutes,
+                'install_start' => $scheduleData->install_start,
+                'install_end' => $scheduleData->install_end,
+                'waiting_time' => $scheduleData->waiting_time,
+                'waiting_start' => $scheduleData->waiting_start,
+                'waiting_end' => $scheduleData->waiting_end,
+                'pouring_time' => $scheduleData->pouring_time,
+                'pouring_start' => $scheduleData->pouring_start,
                 'pouring_end' => $scheduleData->pouring_end,
                 'cleaning_start' => $scheduleData->cleaning_start,
                 'cleaning_end' => $scheduleData->cleaning_end,
@@ -1116,7 +1134,10 @@ class ScheduleService
             $selectedPump['qc_end'] = $scheduleData->qc_end->copy()->lt($selectedPump['qc_end']) ? $scheduleData->qc_end : $selectedPump['qc_end'];
             $selectedPump['insp_start'] = $scheduleData->insp_start->copy()->lt($selectedPump['insp_start']) ? $scheduleData->insp_start : $selectedPump['insp_start'];
             $selectedPump['insp_end'] = $scheduleData->insp_end->copy()->lt($selectedPump['insp_end']) ? $scheduleData->insp_end : $selectedPump['insp_end'];
-            
+            $selectedPump['install_start'] = $scheduleData->install_start->copy()->lt($selectedPump['install_start']) ? $scheduleData->install_start : $selectedPump['install_start'];
+            $selectedPump['install_end'] = $scheduleData->install_end->copy()->lt($selectedPump['install_end']) ? $scheduleData->install_end : $selectedPump['install_end'];
+            $selectedPump['waiting_start'] = $scheduleData->waiting_start->copy()->lt($selectedPump['waiting_start']) ? $scheduleData->waiting_start : $selectedPump['waiting_start'];
+            $selectedPump['waiting_end'] = $scheduleData->waiting_end->copy()->lt($selectedPump['waiting_end']) ? $scheduleData->waiting_end : $selectedPump['waiting_end'];
             $selectedPump['pouring_start'] = $scheduleData->pouring_start->copy()->lt($selectedPump['pouring_start']) ? $scheduleData->pouring_start : $selectedPump['pouring_start'];
             $selectedPump['pouring_end'] = $scheduleData->pouring_end->copy()->gt($selectedPump['pouring_end']) ? $scheduleData->pouring_end : $selectedPump['pouring_end'];
 

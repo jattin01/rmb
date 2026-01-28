@@ -271,7 +271,10 @@
 															<span class="schedule-chartvalue mr-sm-2 mr-1"> <span class="dots-box internal"></span> Internal QC </span>
 															<span class="schedule-chartvalue mr-sm-2 mr-1"> <span class="dots-box travelling"></span> Travelling to Site </span>
 															<span class="schedule-chartvalue mr-sm-2 mr-1"> <span class="dots-box onsite"></span> Onsite Inspection </span>
+															<span class="schedule-chartvalue mr-sm-2 mr-1"> <span class="dots-box bg-yellow"></span> Pump Installation </span>
+															<span class="schedule-chartvalue mr-sm-2 mr-1"> <span class="dots-box bg-secondary"></span> Waiting </span>
 															<span class="schedule-chartvalue mr-sm-2 mr-1"> <span class="dots-box  pouring"></span> Pouring </span>
+															<br>
 															<span class="schedule-chartvalue mr-sm-2 mr-1"> <span class="dots-box cleaning"></span> Cleaning </span>
 															<span class="schedule-chartvalue mr-sm-2 mr-1"> <span class="dots-box return"></span> Return to Plant </span>
 														</td>
@@ -330,10 +333,12 @@
 																	<div class="progress-bar pink" data-toggle="tooltip" data-placement="bottom" title="{{ Carbon\Carbon::parse($psch['qc_start']) -> format('h:i A') . ' to ' . Carbon\Carbon::parse($psch['qc_end']) -> format('h:i A') . ' (' . $psch['qc_time'] . ' mins)'}}" role="progressbar" style="padding : 0%; width :  {{$pschResData['qc_pixels'] ? $pschResData['qc_pixels'] . 'px' : '0%'}}"  aria-valuemin="0" aria-valuemax="100"></div>
 																	<div class="progress-bar purple" data-toggle="tooltip" data-placement="bottom" title="{{ Carbon\Carbon::parse($psch['travel_start']) -> format('h:i A') . ' to ' . Carbon\Carbon::parse($psch['travel_end']) -> format('h:i A') . ' (' . $psch['travel_time'] . ' mins)'}}" role="progressbar" style="padding : 0%; width :  {{$pschResData['travel_pixels'] ? $pschResData['travel_pixels'] . 'px' : '0%'}}"  aria-valuemin="0" aria-valuemax="100"></div>
 																	<div class="progress-bar dark-green" role="progressbar" data-toggle="tooltip" data-placement="bottom" title="{{ Carbon\Carbon::parse($psch['insp_start']) -> format('h:i A') . ' to ' . Carbon\Carbon::parse($psch['insp_end']) -> format('h:i A') . ' (' . $psch['insp_time'] . ' mins)'}}" style="padding : 0%; width :  {{$pschResData['insp_pixels'] ? $pschResData['insp_pixels'] . 'px' : '0%'}}"  aria-valuemin="0" aria-valuemax="100"></div>
+																	<div class="progress-bar yellow" role="progressbar" data-toggle="tooltip" data-placement="bottom" title="{{ Carbon\Carbon::parse($psch['install_start']) -> format('h:i A') . ' to ' . Carbon\Carbon::parse($psch['install_end']) -> format('h:i A') . ' (' . $psch['install_time'] . ' mins)'}}" style="padding : 0%; width :  {{$pschResData['install_pixels'] ? $pschResData['install_pixels'] . 'px' : '0%'}}" aria-valuemin="0" aria-valuemax="100"></div>
+																	<div class="progress-bar bg-secondary" role="progressbar" data-toggle="tooltip" data-placement="bottom" title="{{ Carbon\Carbon::parse($psch['waiting_start']) -> format('h:i A') . ' to ' . Carbon\Carbon::parse($psch['waiting_end']) -> format('h:i A') . ' (' . $psch['waiting_time'] . ' mins)'}}" style="padding : 0%; width :  {{$pschResData['waiting_pixels'] ? $pschResData['waiting_pixels'] . 'px' : '0%'}}" aria-valuemin="0" aria-valuemax="100"></div>
 																	<div class="progress-bar dark-blue" role="progressbar" data-toggle="tooltip" data-placement="bottom" title="{{ Carbon\Carbon::parse($psch['pouring_start']) -> format('h:i A') . ' to ' . Carbon\Carbon::parse($psch['pouring_end']) -> format('h:i A') . ' (' . $psch['pouring_time'] . ' mins)'}}" style="padding : 0%; width :  {{$pschResData['pouring_pixels'] ? $pschResData['pouring_pixels'] . 'px' : '0%'}}"  aria-valuemin="0" aria-valuemax="100"></div>
 																	<div class="progress-bar nevy-blue" role="progressbar" data-toggle="tooltip" data-placement="bottom" title="{{ Carbon\Carbon::parse($psch['cleaning_start']) -> format('h:i A') . ' to ' . Carbon\Carbon::parse($psch['cleaning_end']) -> format('h:i A') . ' (' . $psch['cleaning_time'] . ' mins)'}}" style="padding : 0%; width :  {{$pschResData['cleaning_pixels'] ? $pschResData['cleaning_pixels'] . 'px' : '0%'}}"  aria-valuemin="0" aria-valuemax="100"></div>
 																	<div class="progress-bar light-green" role="progressbar" data-toggle="tooltip" data-placement="bottom" title="{{ Carbon\Carbon::parse($psch['return_start']) -> format('h:i A') . ' to ' . Carbon\Carbon::parse($psch['return_end']) -> format('h:i A') . ' (' . $psch['return_time'] . ' mins)'}}" style="padding : 0%; width :  {{$pschResData['return_pixels'] ? $pschResData['return_pixels'] . 'px' : '0%'}}"  aria-valuemin="0" aria-valuemax="100"></div>
-																</div>
+															</div>
 																</div>
 
 																<div class="stip-bgmainebox">
@@ -674,7 +679,10 @@
 															<span class="schedule-chartvalue mr-sm-2 mr-1"> <span class="dots-box internal"></span> Internal QC </span>
 															<span class="schedule-chartvalue mr-sm-2 mr-1"> <span class="dots-box travelling"></span> Travelling to Site </span>
 															<span class="schedule-chartvalue mr-sm-2 mr-1"> <span class="dots-box onsite"></span> Onsite Inspection </span>
+															<span class="schedule-chartvalue mr-sm-2 mr-1"> <span class="dots-box bg-yellow"></span> Pump Installation </span>
+															<span class="schedule-chartvalue mr-sm-2 mr-1"> <span class="dots-box bg-secondary"></span> Waiting </span>
 															<span class="schedule-chartvalue mr-sm-2 mr-1"> <span class="dots-box  pouring"></span> Pouring </span>
+															<br>
 															<span class="schedule-chartvalue mr-sm-2 mr-1"> <span class="dots-box cleaning"></span> Cleaning </span>
 															<span class="schedule-chartvalue mr-sm-2 mr-1"> <span class="dots-box return"></span> Return to Plant </span>
 									</div>
@@ -868,7 +876,10 @@
 															<span class="schedule-chartvalue mr-sm-2 mr-1"> <span class="dots-box internal"></span> Internal QC </span>
 															<span class="schedule-chartvalue mr-sm-2 mr-1"> <span class="dots-box travelling"></span> Travelling to Site </span>
 															<span class="schedule-chartvalue mr-sm-2 mr-1"> <span class="dots-box onsite"></span> Onsite Inspection </span>
+															<span class="schedule-chartvalue mr-sm-2 mr-1"> <span class="dots-box bg-yellow"></span> Pump Installation </span>
+															<span class="schedule-chartvalue mr-sm-2 mr-1"> <span class="dots-box bg-secondary"></span> Waiting </span>
 															<span class="schedule-chartvalue mr-sm-2 mr-1"> <span class="dots-box  pouring"></span> Pouring </span>
+															<br>
 															<span class="schedule-chartvalue mr-sm-2 mr-1"> <span class="dots-box cleaning"></span> Cleaning </span>
 															<span class="schedule-chartvalue mr-sm-2 mr-1"> <span class="dots-box return"></span> Return to Plant </span>
 									</div>
@@ -979,6 +990,12 @@
 																		<div class="progress-bar pink_pump" data-toggle="tooltip" data-placement="bottom" title="{{'Internal QC | ' . Carbon\Carbon::parse($multiPixel['qc_start']) -> format('h:i A') . ' to ' . Carbon\Carbon::parse($multiPixel['qc_end']) -> format('h:i A') . ' | Order - '. $multiPixel['order_no']}}" role="progressbar" style="margin-left: {{$multiPixel['margin']  . 'px'}} ;padding : 0%; min-width  : {{$multiPixel['qc_pixels'] ? $multiPixel['qc_pixels'] . 'px !important' : '0%'}}" aria-valuenow="30" aria-valuemin="0" aria-valuemax="100"></div>
 																		<div class="progress-bar purple" data-toggle="tooltip" data-placement="bottom" title="{{'Travel | ' . Carbon\Carbon::parse($multiPixel['travel_start']) -> format('h:i A') . ' to ' . Carbon\Carbon::parse($multiPixel['travel_end']) -> format('h:i A') . ' | Order - '. $multiPixel['order_no']}}" role="progressbar" style="padding : 0%; min-width  : {{$multiPixel['travel_pixels'] ? $multiPixel['travel_pixels'] . 'px !important' : '0%'}}" aria-valuenow="30" aria-valuemin="0" aria-valuemax="100"></div>
 																		<div class="progress-bar dark-green" data-toggle="tooltip" data-placement="bottom" title="{{'Onsite Inspection | ' . Carbon\Carbon::parse($multiPixel['insp_start']) -> format('h:i A') . ' to ' . Carbon\Carbon::parse($multiPixel['insp_end']) -> format('h:i A') . ' | Order - '. $multiPixel['order_no']}}" role="progressbar" style="padding : 0%; min-width  : {{$multiPixel['insp_pixels'] ? $multiPixel['insp_pixels'] . 'px !important' : '0%'}}" aria-valuenow="30" aria-valuemin="0" aria-valuemax="100"></div>
+																		
+																		<div class="progress-bar yellow" data-toggle="tooltip" data-placement="bottom" title="{{'Pump Install | ' . Carbon\Carbon::parse($multiPixel['install_start']) -> format('h:i A') . ' to ' . Carbon\Carbon::parse($multiPixel['install_end']) -> format('h:i A') . ' | Order - '. $multiPixel['order_no']}}" role="progressbar" style="padding : 0%; min-width  : {{$multiPixel['install_pixels'] ? $multiPixel['install_pixels'] . 'px !important' : '0%'}}" aria-valuenow="30" aria-valuemin="0" aria-valuemax="100"></div>
+																		<div class="progress-bar bg-secondary" data-toggle="tooltip" data-placement="bottom" title="{{'Pump Waiting | ' . Carbon\Carbon::parse($multiPixel['waiting_start']) -> format('h:i A') . ' to ' . Carbon\Carbon::parse($multiPixel['waiting_end']) -> format('h:i A') . ' | Order - '. $multiPixel['order_no']}}" role="progressbar" style="padding : 0%; min-width  : {{$multiPixel['waiting_pixels'] ? $multiPixel['waiting_pixels'] . 'px !important' : '0%'}}" aria-valuenow="30" aria-valuemin="0" aria-valuemax="100"></div>
+																		
+																		
+																		
 																		<div class="progress-bar dark-blue" data-toggle="tooltip" data-placement="bottom" title="{{'Pouring | ' . Carbon\Carbon::parse($multiPixel['pouring_start']) -> format('h:i A') . ' to ' . Carbon\Carbon::parse($multiPixel['pouring_end']) -> format('h:i A') . ' | Order - '. $multiPixel['order_no']}}" role="progressbar" style="padding : 0%; min-width  : {{$multiPixel['pouring_pixels'] ? $multiPixel['pouring_pixels'] . 'px !important' : '0%'}}" aria-valuenow="30" aria-valuemin="0" aria-valuemax="100"></div>
 																		<div class="progress-bar nevy-blue" data-toggle="tooltip" data-placement="bottom" title="{{'Cleaning | ' . Carbon\Carbon::parse($multiPixel['cleaning_start']) -> format('h:i A') . ' to ' . Carbon\Carbon::parse($multiPixel['cleaning_end']) -> format('h:i A') . ' | Order - '. $multiPixel['order_no']}}" role="progressbar" style="padding : 0%; min-width  : {{$multiPixel['cleaning_pixels'] ? $multiPixel['cleaning_pixels'] . 'px !important' : '0%'}}" aria-valuenow="30" aria-valuemin="0" aria-valuemax="100"></div>
 																		<div class="progress-bar light-green" data-toggle="tooltip" data-placement="bottom" title="{{'Return | ' . Carbon\Carbon::parse($multiPixel['return_start']) -> format('h:i A') . ' to ' . Carbon\Carbon::parse($multiPixel['return_end']) -> format('h:i A') . ' | Order - '. $multiPixel['order_no']}}" role="progressbar" style="padding : 0%; min-width  : {{$multiPixel['return_pixels'] ? $multiPixel['return_pixels'] . 'px !important' : '0%'}}" aria-valuenow="30" aria-valuemin="0" aria-valuemax="100"></div>

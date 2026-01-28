@@ -361,6 +361,8 @@ class OrderHelper
         $travelPixles = 1.5 * ((int) $value['travel_time']);
         $inspPixels = 1.5 * ((int) $value['insp_time']);
         $pourPixles = 1.5 * ((int) $value['pouring_time']);
+        $waitingPixles = 1.5 * ((int) $value['waiting_time'])??0;
+        $installPixles = 1.5 * ((int) $value['install_time'])??0;
         $cleanPixels = 1.5 * ((int) $value['cleaning_time']);
         $returnPixles = 1.5 * ((int) $value['return_time']);
         $totalPixles = 1.5 * ((int) $totalMinutes);
@@ -378,7 +380,7 @@ class OrderHelper
         $rData = [
             'id' => $value['id'],
             'pump_name' => $value['pump'],
-            'install_time'=>$value['installation_time'] ?? 10,
+            'install_time'=> $value['installation_time'] ?? 10,
             'total_minutes' => $totalMinutes,
             'colspan' => $colspan,
             'margin' => $startDateTime,
@@ -388,6 +390,8 @@ class OrderHelper
             'qc_pixels' => $qcPixles,
             'travel_pixels' => $travelPixles,
             'pouring_pixels' => $pourPixles,
+            'waiting_pixels' => $waitingPixles,
+            'install_pixels' => $installPixles,
             'insp_pixels' => $inspPixels,
             'cleaning_pixels' => $cleanPixels,
             'return_pixels' => $returnPixles,

@@ -24,6 +24,7 @@ class PumpHelper
         $new_schedules = [];
 
         foreach ($schedules as $schValue) {
+            
             $key = array_search($schValue['pump'], array_column($new_schedules, 'pump'));
             if ($key !== false) {
                 $new_schedules[$key]['end_time'] = $schValue['cleaning_end'];
@@ -42,6 +43,12 @@ class PumpHelper
                     'travel_start' => $schValue['travel_start'],
                     'travel_time' => $schValue['travel_time'],
                     'travel_end' => $schValue['travel_end'],
+                    'install_start' => $schValue['install_start'],
+                    'install_time' => $schValue['install_time'],
+                    'install_end' => $schValue['install_end'],
+                    'waiting_start' => $schValue['waiting_start'],
+                    'waiting_time' => $schValue['waiting_time'],
+                    'waiting_end' => $schValue['waiting_end'],
 
                     'pouring_start' => $schValue['pouring_start'],
                     'pouring_time' => $schValue['pouring_time'],
@@ -88,6 +95,12 @@ class PumpHelper
                             'pouring_start' => $schValue['pouring_start'],
                             'pouring_time' => $schValue['pouring_time'],
                             'pouring_end' => $schValue['pouring_end'],
+                            'install_start' => $schValue['install_start'],
+                            'install_time' => $schValue['install_time'],
+                            'install_end' => $schValue['install_end'],
+                            'waiting_start' => $schValue['waiting_start'],
+                            'waiting_time' => $schValue['waiting_time'],
+                            'waiting_end' => $schValue['waiting_end'],
         
                             'insp_start' => $schValue['insp_start'],
                             'insp_time' => $schValue['insp_time'],
@@ -187,6 +200,12 @@ class PumpHelper
                     'pouring_pixels' => 1.5 * (int) $val['pouring_time'],
                     'pouring_start' => $val['pouring_start'],
                     'pouring_end' => $val['pouring_end'],
+                    'install_pixels' => 1.5 * (int) $val['install_time'],
+                    'install_start' => $val['install_start'],
+                    'install_end' => $val['install_end'],
+                    'waiting_pixels' => 1.5 * (int) $val['waiting_time'],
+                    'waiting_start' => $val['waiting_start'],
+                    'waiting_end' => $val['waiting_end'],
 
                     'cleaning_pixels' => 1.5 * (int) $val['cleaning_time'],
                     'cleaning_start' => $val['cleaning_start'],

@@ -821,6 +821,12 @@ class OrderController extends Controller
                     "selected_order_pump_schedules.return_time",
                     "selected_order_pump_schedules.return_start",
                     "selected_order_pump_schedules.return_end",
+                    "selected_order_pump_schedules.install_time",
+                    "selected_order_pump_schedules.install_start",
+                    "selected_order_pump_schedules.install_end",
+                    "selected_order_pump_schedules.waiting_time",
+                    "selected_order_pump_schedules.waiting_start",
+                    "selected_order_pump_schedules.waiting_end",
                     "selected_order_pump_schedules.id"
                 )
                 ->where("selected_order_pump_schedules.group_company_id", $request->company_id)
@@ -842,7 +848,7 @@ class OrderController extends Controller
                 ]
             ]);
         } catch (Exception $ex) {
-            //dd($ex);
+            dd($ex);
             return view('components.common.internal_error', ['message' => $ex->getMessage()]);
         }
     }
