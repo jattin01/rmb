@@ -562,7 +562,7 @@
 																	</span>
 																	<br/>
 																	<span class = "small">
-																	{{intval($res['loading_time']/60)}}:{{intval($res['total_time']%60)}} hrs
+																	{{intval($res['loading_time']/60)}}:{{intval($res['loading_time']%60)}} hrs
 																	</span>
 																	&nbsp;
 																	<span class = "small">
@@ -571,7 +571,7 @@
 																	</span>
 																	&nbsp;
 																	<span class = "small">
-																	{{number_format(($res['total_batching_time'] / $res['pouring_time']) * 100, 0)}} %
+																	{{number_format(($res['total_batching_time'] / $res['total_time']) * 100, 0)}} %
 																	</span>
 																</div>
 															</div>
