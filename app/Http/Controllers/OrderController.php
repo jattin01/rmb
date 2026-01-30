@@ -21,6 +21,8 @@ use App\Imports\OrderImport;
 use App\Imports\PumpImport;
 use App\Imports\TransitMixerImport;
 use App\Models\ApprovalLevel;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use App\Models\ApprovalSetup;
 use App\Models\BatchingPlant;
 use App\Models\BatchingPlantAvailability;
@@ -48,7 +50,7 @@ use App\Models\StructuralReference;
 use App\Models\Temperature;
 use App\Models\TransitMixer;
 use Carbon\Carbon;
-use DB;
+
 use Exception;
 use Illuminate\Http\Request;
 use Maatwebsite\Excel\Facades\Excel;
@@ -379,7 +381,8 @@ class OrderController extends Controller
                 return redirect()->back()->with('warning', "Order doesn't exist");
             }
         } catch (Exception $ex) {
-            dd($ex->getMessage());
+            // dd($ex->getMessage());
+            return redirect()->back()->with('error', $ex->getMessage());
         }
     }
 
@@ -698,9 +701,10 @@ class OrderController extends Controller
                 ->byUserCompanyScheduleDate($request->company_id, auth()->user()->id, $shift_start, $shift_end)
                 // -> where("selected", true) -> orderByRaw('start_time IS NULL, start_time ASC') -> get();
                 ->where("selected", true)
-                ->orderBy('delivery_date')
-                ->orderBy("quantity",'desc')
-                ->orderBy('start_time','asc')->get();
+                ->orderBy('start_time', 'ASC')
+                ->orderBy('priority', 'ASC')
+                ->orderBy('quantity', 'DESC')
+                ->get();
 
             //Batching Plant
             $schedulesBP = SelectedOrderSchedule::rightJoin("batching_plants", function ($query) {
@@ -729,7 +733,7 @@ class OrderController extends Controller
             $endTime = (Carbon::parse($startTime)->addHours(39)->addMinutes(59))->format("H:i");
             // dd($orders);
             $result = OrderHelper::orderGraphData($orders->toArray(), $startTime, $endTime, $request->schedule_date, count($schedulesBP), $schedulesBP);
-         
+
             //Batching Plant
             $bpScheduleGap = BatchingPlantAvailability::rightJoin("batching_plants", function ($query) {
                 $query->on("batching_plants.plant_name", "=", "batching_plant_availability.plant_name");
@@ -832,10 +836,10 @@ class OrderController extends Controller
                 ->where("selected_order_pump_schedules.group_company_id", $request->company_id)
                 ->where("selected_order_pump_schedules.user_id", auth()->user()->id)
                 ->whereBetween("selected_order_pump_schedules.qc_start", [$shift_start, $shift_end])
-                //->orderBy("selected_order_pump_schedules.id")
+                ->orderBy("selected_order_pump_schedules.id",'asc')
                 ->get()->toArray();
             $resultPM = PumpHelper::pumpsSchedule($schedulesPM, $startTime, $endTime, $request->schedule_date);
-
+            
             return view("components.orders.order_schedule_match", [
                 'result' => $result,
                 'transit_mixer' => $resultTM,
@@ -848,7 +852,7 @@ class OrderController extends Controller
                 ]
             ]);
         } catch (Exception $ex) {
-            dd($ex);
+            //dd($ex);
             return view('components.common.internal_error', ['message' => $ex->getMessage()]);
         }
     }
@@ -1651,7 +1655,7 @@ class OrderController extends Controller
                 "message" => __('message.records_saved_successfully', ['static' => __('static.order')])
             ];
         } catch (Exception $ex) {
-            dd($ex);
+            // dd($ex);
             DB::rollBack();
             return redirect()->back()->withInput()->with(ConstantHelper::ERROR, $ex->getMessage());
         }
@@ -1891,13 +1895,13 @@ class OrderController extends Controller
                 $access = $approvalLevels->firstWhere('user_id', $currentUserId);
                 if (isset($access)) { //Access
                     if ($approvalSetup->approval_type === "Horizontal") { //Horizontal Approval
-                        OrderHelper::addApproval($request, $currentUserId, $approvalSetup, $approvalLevels);
+                        OrderHelper::addApproval($request, $currentUserId, $approvalSetup, $approvalLevels, 0);
                         DB::commit();
                         return redirect()->back()->with('success', 'Approved marked successfully');
                     } else { // Vertical Approval
                         $canApprove = OrderApprovalHelper::canApproveVerticalApproval($access->level_no, $currentUserId, $approvalLevels, $approvedStatuses, $approvalSetup);
                         if ($canApprove) {
-                            OrderHelper::addApproval($request, $currentUserId, $approvalSetup, $approvalLevels);
+                            OrderHelper::addApproval($request, $currentUserId, $approvalSetup, $approvalLevels, 0);
                             DB::commit();
                             return redirect()->back()->with('success', 'Approved marked successfully');
                         } else {

@@ -1047,7 +1047,7 @@ class ScheduleService
     }
     private function generatePumpSchedule(ScheduleData &$scheduleData, $order)
     {
-
+       
         // 1) Buffer calculation
         $installMinutes = $scheduleData->pouring_pump['pump']['installation_time'] ?? 10;
         $travelMinutes = $scheduleData->travel_time ?? 0;
@@ -1176,37 +1176,44 @@ class ScheduleService
     private function updatePumpSchedule(ScheduleData &$scheduleData, $selectedPump)
     {
 
+
+        $installMinutes = $scheduleData->pouring_pump['pump']['installation_time'] ?? 10;
+        $travelMinutes = $scheduleData->travel_time ?? 0;
+        $qcTime = $scheduleData->qc_time ?? 0;
+        $loadingTime = $scheduleData->loading_time ?? 0;
+
+
+        $waiting_time = $installMinutes + $travelMinutes + $qcTime + $loadingTime;
+        $pouring_start = $scheduleData->order_start_time;
+        $pouring_end = $scheduleData->order_end_time;
+        $pouring_time = Carbon::parse($pouring_start)->diffInMinutes(Carbon::parse($pouring_end));
+
+        $waiting_end = Carbon::parse($pouring_start)->subMinutes(1);
+        $waiting_start = Carbon::parse($waiting_end)->subMinutes($waiting_time);
+
+        $install_end = Carbon::parse($waiting_start)->subMinutes(1);
+        $install_start = Carbon::parse($install_end)->subMinutes($installMinutes);
+
+        $insp_end = Carbon::parse($install_start)->subMinutes(1);
+        $insp_start = Carbon::parse($insp_end)->subMinutes($scheduleData->insp_time);
+
+        $travel_end = Carbon::parse($insp_start)->subMinutes(1);
+        $travel_start = Carbon::parse($travel_end)->subMinutes($travelMinutes);
+
+        $qc_end = Carbon::parse($travel_start)->subMinutes(1);
+        $qc_start = Carbon::parse($qc_end)->subMinutes($qcTime);
+
+        $cleanig_start = Carbon::parse($pouring_end)->addMinutes(1);
+        $cleanig_end = Carbon::parse($cleanig_start)->addMinutes($scheduleData->cleaning_time);
+        $return_start = Carbon::parse($cleanig_end)->addMinutes(1);
+        $return_end = Carbon::parse($return_start)->addMinutes($scheduleData->return_time);
+
         foreach ($selectedPump as $i => $pump) {
-            $installMinutes = $selectedPump[$i]['install_time'] ?? 10;
 
+            $selectedPump[$i]['pouring_start'] = $pouring_start;
+            $selectedPump[$i]['pouring_end'] = $pouring_end;
+            $selectedPump[$i]['pouring_time'] = $pouring_time;
 
-            $travelMinutes = $scheduleData->travel_time ?? 0;
-            $qcTime = $scheduleData->qc_time ?? 0;
-            $loadingTime = $scheduleData->loading_time ?? 0;
-
-
-            
-            $order_time =  Carbon::parse($scheduleData->order_start_time);
-            $addWaiting = $order_time->diffInMinutes( Carbon::parse($selectedPump[$i]['pouring_start'])); // 105
-            $waiting_time = $installMinutes + $travelMinutes + $qcTime + $loadingTime + $addWaiting;
-            
-            
-            $waiting_end =  $selectedPump[$i]['waiting_end'];
-            $waiting_start = Carbon::parse($waiting_end)->subMinutes($waiting_time);
-
-            $install_end = Carbon::parse($waiting_start)->subMinutes(1);
-            $install_start = Carbon::parse($install_end)->subMinutes($installMinutes);
-
-            $insp_end = Carbon::parse($install_start)->subMinutes(1);
-            $insp_start = Carbon::parse($insp_end)->subMinutes($scheduleData->insp_time);
-
-            $travel_end = Carbon::parse($insp_start)->subMinutes(1);
-            $travel_start = Carbon::parse($travel_end)->subMinutes($travelMinutes);
-
-            $qc_end = Carbon::parse($travel_start)->subMinutes(1);
-            $qc_start = Carbon::parse($qc_end)->subMinutes($qcTime);
-
-            
             $selectedPump[$i]['qc_start'] = $qc_start;
             $selectedPump[$i]['qc_end'] = $qc_end;
 
@@ -1220,13 +1227,14 @@ class ScheduleService
             $selectedPump[$i]['install_end'] = $install_end;
 
             $selectedPump[$i]['waiting_start'] = $waiting_start;
-            $selectedPump[$i]['waiting_time'] = $waiting_time;
-            
+            $selectedPump[$i]['waiting_end'] = $waiting_end;
 
-           
-            
+            $selectedPump[$i]['cleaning_start'] = $cleanig_start;
+            $selectedPump[$i]['cleaning_end'] = $cleanig_end;
+
+            $selectedPump[$i]['return_start'] = $return_start;
+            $selectedPump[$i]['return_end'] = $return_end;
         }
-      
         $scheduleData->selected_order_pump_schedules = $selectedPump;
 
 
