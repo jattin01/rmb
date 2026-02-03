@@ -58,10 +58,11 @@ class PumpHelper
         $pump_qty,
         $location = null,
         $assinedPump = null,
-        $assinedPumps = array()
+        $assinedPumps = array(),
+        $scheduleData
     ) {
         try {
-
+        
             $data = null;
             $index = null;
 
@@ -93,27 +94,27 @@ class PumpHelper
             /* ================= FIRST LOOP ================= */
             foreach ($pumps as $pumpKey => $pump) {
 
-                $installMinutes = $pump['installation_time'] ?? 10;
-                $travelMinutes = $order->travel_to_site ?? 0;
-
-                $travelMinutes = $order->travel_time ?? 0;
-                $qcTime = $order->qc_time ?? 0;
-                $loadingTime = $order->loading_time ?? 0;
-
+                // $installMinutes = $pump['installation_time'] ?? 10;
+                // $travelMinutes = $scheduleData->travel_time ?? 0;
+                // $qcTime = $scheduleData->qc_time ?? 0;
+                // $loadingTime = $scheduleData->loading_time ?? 0;
+                // $insp_time = $scheduleData->insp_time ?? 0;
 
 
 
 
-                $pumpCount = is_array($pumps) ? count($pumps) : $pumps->count();
 
-                $subMinutes = $installMinutes + $travelMinutes + $qcTime + $loadingTime;
+                // $pumpCount = is_array($pumps) ? count($pumps) : $pumps->count();
+
+                // $subMinutes = $installMinutes + $travelMinutes + $qcTime + $insp_time;
 
 
-                $new_pump_start = $pump_start_time;
 
-                $new_pump_start = Carbon::parse($pump_start_time)
-                    ->subMinutes($subMinutes)
-                    ->format('Y-m-d H:i:s');
+                // $new_pump_start = $pump_start_time;
+
+                // $new_pump_start = Carbon::parse($pump_start_time)
+                //     ->subMinutes($subMinutes)
+                //     ->format('Y-m-d H:i:s');
 
                 // Log::info("Checking Pump", [
                 //     'order' => $order->order_no,
@@ -172,11 +173,11 @@ class PumpHelper
                 }
 
                 /* ---- SAFE TIME CHECK ---- */
-                $orderDate = Carbon::parse($new_pump_start)->toDateString();
+                $orderDate = Carbon::parse($pump_start_time)->toDateString();
 
                 $freeFrom = $makeDateTime($orderDate, $pump['free_from']);
                 $freeUpto = $makeDateTime($orderDate, $pump['free_upto']);
-                $start = Carbon::parse($new_pump_start)->format('Y-m-d H:i:s');
+                $start = Carbon::parse($pump_start_time)->format('Y-m-d H:i:s');
                 $end = Carbon::parse($pump_end_time)->format('Y-m-d H:i:s');
 
                 if (
@@ -197,7 +198,7 @@ class PumpHelper
                 /* ---- AVAILABLE ---- */
                 $data = $pump;
                 $index = $pumpKey;
-                $pump_start_time = $new_pump_start;
+                $pump_start_time = $pump_start_time;
                 break;
             }
 
@@ -231,12 +232,13 @@ class PumpHelper
 
                 $freeFrom = $makeDateTime($orderDate, $pump['free_from']);
                 $freeUpto = $makeDateTime($orderDate, $pump['free_upto']);
+               
                 $start = Carbon::parse($pump_start_time)->format('Y-m-d H:i:s');
                 $end = Carbon::parse($pump_end_time)->format('Y-m-d H:i:s');
 
                 if (
-                    ($freeFrom && $freeFrom->gt($start)) ||   // free baad mai start ho rahi
-                    ($freeUpto && $freeUpto->lt($end))        // free pehle khatam ho rahi
+                    ($freeFrom && $freeFrom->gt($start)) ||   
+                    ($freeUpto && $freeUpto->lt($end))        
                 ) {
 
                     continue;

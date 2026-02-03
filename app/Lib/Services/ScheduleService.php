@@ -9,6 +9,7 @@ use App\Helpers\V2\TransitMixerRestrictionHelper;
 use App\Helpers\CustomerProjectSiteHelper;
 use App\Models\BatchingPlantAvailability;
 use App\Models\GlobalSetting;
+use App\Models\Pump;
 use App\Models\SelectedOrder;
 use App\Models\ProductType;
 use App\Models\SelectedOrderPumpSchedule;
@@ -21,9 +22,11 @@ use Illuminate\Support\Facades\DB;
 class ScheduleData
 {
     public $user_id;
+    public $pump_loading_time;
     public $trip;
     public $order_interval;
     public $order_start_time;
+    public $min_loading_start;
     public $order_end_time;
 
     public $company;
@@ -925,9 +928,10 @@ class ScheduleService
 
     private function assignResources($order, ScheduleData &$scheduleData, $location, $trip)
     {
-        $this->assignPump($order, $scheduleData, $location, $trip);
         $this->assignBatchingPlant($scheduleData, $location, $trip);
         $this->assignTransitMixer($scheduleData, $location, $trip);
+        $this->assignPump($order, $scheduleData, $location, $trip);
+
 
     }
 
@@ -988,6 +992,10 @@ class ScheduleService
     private function assignPump($order, ScheduleData &$scheduleData, $location, $trip)
     {
         if ($order->pump) {
+            if ($scheduleData->trip === 1) {
+                $scheduleData->order_start_time = $scheduleData->pouring_start;
+                $scheduleData->pump_loading_time = $scheduleData->loading_start;
+            }
             $scheduleData->pouring_pump = PumpHelper::getAvailablePumps(
                 $scheduleData->pumps_availability,
                 $order->id,
@@ -1001,7 +1009,8 @@ class ScheduleService
                 $order->pump_qty,
                 $location,
                 $scheduleData->assigned_pump,
-                $scheduleData->assigned_pumps
+                $scheduleData->assigned_pumps,
+                $scheduleData
             );
 
             if (isset($scheduleData->pouring_pump['pump']['pump_name'])) {
@@ -1048,54 +1057,8 @@ class ScheduleService
     private function generatePumpSchedule(ScheduleData &$scheduleData, $order)
     {
 
-        // 1) Buffer calculation
-        $installMinutes = $scheduleData->pouring_pump['pump']['installation_time'] ?? 10;
-        $travelMinutes = $scheduleData->travel_time ?? 0;
-        $qcTime = $scheduleData->qc_time ?? 0;
-        $loadingTime = $scheduleData->loading_time ?? 0;
+        // $orderInterval = ($order->pump_qty == 1) ? $order->interval  : 0;
 
-
-        $bufferTime = $installMinutes + $travelMinutes + $qcTime + $loadingTime;
-
-        // 2) Helper to apply buffer
-        $applyBuffer = function ($time) use ($bufferTime) {
-            return $time
-                ? \Carbon\Carbon::parse($time)->subMinutes($bufferTime)
-                : null;
-        };
-
-        $scheduleData->install_start = $applyBuffer($scheduleData->insp_end);
-        $scheduleData->install_end = $scheduleData->install_start ? $scheduleData->install_start->copy()->addMinutes($installMinutes) : null;
-
-
-        if (
-            $scheduleData->install_end &&
-            $scheduleData->pouring_start &&
-            \Carbon\Carbon::parse($scheduleData->pouring_start)
-                ->greaterThan(\Carbon\Carbon::parse($scheduleData->install_end))
-        ) {
-            $scheduleData->waiting_start = $scheduleData->install_end;
-
-            $scheduleData->waiting_time = \Carbon\Carbon::parse($scheduleData->pouring_start)
-                ->diffInMinutes(\Carbon\Carbon::parse($scheduleData->waiting_start));
-
-            $scheduleData->waiting_end = \Carbon\Carbon::parse($scheduleData->pouring_start)
-                ->copy()
-                ->subMinute(); // 1 minute before pouring
-        } else {
-            $scheduleData->waiting_start = $scheduleData->install_end;
-            $scheduleData->waiting_time = '0';
-            $scheduleData->waiting_end = $scheduleData->install_end;
-        }
-
-
-
-
-        $key = $scheduleData->pouring_pump['pump']['pump_name'];
-
-
-
-        // 3) First-time pump
         if (!isset($scheduleData->selected_order_pump_schedules[$scheduleData->pouring_pump['pump']['pump_name']])) {
             $scheduleData->selected_order_pump_schedules[$scheduleData->pouring_pump['pump']['pump_name']] = array(
 
@@ -1106,27 +1069,21 @@ class ScheduleService
                 'cust_product_id' => $order->customer_product_id,
                 'trip' => 1,
                 'batching_qty' => $scheduleData->batching_qty,
-                'qc_start' => $applyBuffer($scheduleData->qc_start),
+                'qc_start' => $scheduleData->qc_start,
                 'qc_time' => $scheduleData->qc_time,
-                'qc_end' => $applyBuffer($scheduleData->qc_end),
+                'qc_end' => $scheduleData->qc_end,
                 'travel_time' => $scheduleData->travel_time,
-                'travel_start' => $applyBuffer($scheduleData->travel_start),
-                'travel_end' => $applyBuffer($scheduleData->travel_end),
+                'travel_start' => $scheduleData->travel_start,
+                'travel_end' => $scheduleData->travel_end,
                 'insp_time' => $scheduleData->insp_time,
-                'insp_start' => $applyBuffer($scheduleData->insp_start),
-                'insp_end' => $applyBuffer($scheduleData->insp_end),
+                'insp_start' => $scheduleData->insp_start,
+                'insp_end' => $scheduleData->insp_end,
                 'cleaning_time' => $scheduleData->cleaning_time,
-                'delivery_start' => $applyBuffer($scheduleData->delivery_time),
+                'delivery_start' => $scheduleData->delivery_time,
                 'group_company_id' => $scheduleData->company,
                 'schedule_date' => $scheduleData->schedule_date,
                 'order_no' => $scheduleData->order_no,
                 'location' => $scheduleData->location,
-                'install_time' => $installMinutes,
-                'install_start' => $scheduleData->install_start,
-                'install_end' => $scheduleData->install_end,
-                'waiting_time' => $scheduleData->waiting_time,
-                'waiting_start' => $scheduleData->waiting_start,
-                'waiting_end' => $scheduleData->waiting_end,
                 'pouring_time' => $scheduleData->pouring_time,
                 'pouring_start' => $scheduleData->pouring_start,
                 'pouring_end' => $scheduleData->pouring_end,
@@ -1151,10 +1108,7 @@ class ScheduleService
             $selectedPump['qc_end'] = $scheduleData->qc_end->copy()->lt($selectedPump['qc_end']) ? $scheduleData->qc_end : $selectedPump['qc_end'];
             $selectedPump['insp_start'] = $scheduleData->insp_start->copy()->lt($selectedPump['insp_start']) ? $scheduleData->insp_start : $selectedPump['insp_start'];
             $selectedPump['insp_end'] = $scheduleData->insp_end->copy()->lt($selectedPump['insp_end']) ? $scheduleData->insp_end : $selectedPump['insp_end'];
-            $selectedPump['install_start'] = $scheduleData->install_start->copy()->lt($selectedPump['install_start']) ? $scheduleData->install_start : $selectedPump['install_start'];
-            $selectedPump['install_end'] = $scheduleData->install_end->copy()->lt($selectedPump['install_end']) ? $scheduleData->install_end : $selectedPump['install_end'];
-            $selectedPump['waiting_start'] = $scheduleData->waiting_start->copy()->lt($selectedPump['waiting_start']) ? $scheduleData->waiting_start : $selectedPump['waiting_start'];
-            $selectedPump['waiting_end'] = $scheduleData->waiting_end->copy()->lt($selectedPump['waiting_end']) ? $scheduleData->waiting_end : $selectedPump['waiting_end'];
+
             $selectedPump['pouring_start'] = $scheduleData->pouring_start->copy()->lt($selectedPump['pouring_start']) ? $scheduleData->pouring_start : $selectedPump['pouring_start'];
             $selectedPump['pouring_end'] = $scheduleData->pouring_end->copy()->gt($selectedPump['pouring_end']) ? $scheduleData->pouring_end : $selectedPump['pouring_end'];
 
@@ -1175,61 +1129,43 @@ class ScheduleService
 
     private function updatePumpSchedule(ScheduleData &$scheduleData, $selectedPump)
     {
-
+        $count = 0;
         foreach ($selectedPump as $i => $pump) {
-            $installMinutes = $selectedPump[$i]['install_time'] ?? 10;
-
-
-            $travelMinutes = $scheduleData->travel_time ?? 0;
-            $qcTime = $scheduleData->qc_time ?? 0;
-            $loadingTime = $scheduleData->loading_time ?? 0;
-
-
-            
-            $order_time =  Carbon::parse($scheduleData->order_start_time);
-            $addWaiting = $order_time->diffInMinutes( Carbon::parse($selectedPump[$i]['pouring_start'])); // 105
-            $waiting_time = $installMinutes + $travelMinutes + $qcTime + $loadingTime + $addWaiting;
-            
-            
-            $waiting_end =  $selectedPump[$i]['waiting_end'];
-            $waiting_start = Carbon::parse($waiting_end)->subMinutes($waiting_time);
-
-            $install_end = Carbon::parse($waiting_start)->subMinutes(1);
-            $install_start = Carbon::parse($install_end)->subMinutes($installMinutes);
-
+            $pump_name = Pump::where('pump_name', $selectedPump[$i]['pump'])
+                ->first();
+            $installMinutes = $pump_name && $pump_name->installation_time ? $pump_name->installation_time : 10;
+            $install_end = Carbon::parse($scheduleData->min_loading_start)->subMinutes(1);
+            $install_time = $pump_name && $pump_name->installation_time ? $pump_name->installation_time : 10;
+            $install_start = Carbon::parse($install_end)->subMinutes($install_time);
             $insp_end = Carbon::parse($install_start)->subMinutes(1);
-            $insp_start = Carbon::parse($insp_end)->subMinutes($scheduleData->insp_time);
-
+            $insp_start = Carbon::parse($insp_end)->subMinutes($selectedPump[$i]['insp_time']);
             $travel_end = Carbon::parse($insp_start)->subMinutes(1);
-            $travel_start = Carbon::parse($travel_end)->subMinutes($travelMinutes);
-
+            $travel_start = Carbon::parse($travel_end)->subMinutes($selectedPump[$i]['travel_time']);
             $qc_end = Carbon::parse($travel_start)->subMinutes(1);
-            $qc_start = Carbon::parse($qc_end)->subMinutes($qcTime);
-
-            
+            $qc_start = Carbon::parse($qc_end)->subMinutes($selectedPump[$i]['qc_time']);
+            $waiting_start = Carbon::parse($install_end)->addMinutes(1);
+            $pouring_start = Carbon::parse($scheduleData->schedules[$count]['pouring_start']);
+            $waiting_end = Carbon::parse($pouring_start)->subMinutes(1);
+            $waiting_time = Carbon::parse($waiting_start)->diffInMinutes(Carbon::parse($waiting_end));
+            $pouring_time = Carbon::parse($pouring_start)->diffInMinutes(Carbon::parse($selectedPump[$i]['pouring_end']));
             $selectedPump[$i]['qc_start'] = $qc_start;
             $selectedPump[$i]['qc_end'] = $qc_end;
-
             $selectedPump[$i]['travel_start'] = $travel_start;
             $selectedPump[$i]['travel_end'] = $travel_end;
-
+            $selectedPump[$i]['pouring_start']=$pouring_start;
             $selectedPump[$i]['insp_start'] = $insp_start;
             $selectedPump[$i]['insp_end'] = $insp_end;
-
             $selectedPump[$i]['install_start'] = $install_start;
             $selectedPump[$i]['install_end'] = $install_end;
-
+            $selectedPump[$i]['install_time'] = $installMinutes;
             $selectedPump[$i]['waiting_start'] = $waiting_start;
             $selectedPump[$i]['waiting_time'] = $waiting_time;
-            
+            $selectedPump[$i]['pouring_time'] = $pouring_time;
+            $selectedPump[$i]['waiting_end'] = $waiting_end;
+            $count++;
 
-           
-            
         }
-      
         $scheduleData->selected_order_pump_schedules = $selectedPump;
-
-
     }
 
 
@@ -1254,6 +1190,13 @@ class ScheduleService
             ->where('user_id', $user_id)->where('order_no', $order->order_no)
             ->first()->max_pour;
 
+        $scheduleData->min_loading_start = DB::table('selected_order_schedules as B')
+            ->select(DB::raw('MIN(loading_start) AS min_load'))
+            ->where('group_company_id', $scheduleData->company)
+            ->where('user_id', $user_id)
+            ->where('order_no', $order->order_no)
+            ->first()->min_load;
+
 
 
         DB::table('selected_orders as A')
@@ -1276,6 +1219,7 @@ class ScheduleService
             ]);
         if ($order->pump) {
             $this->updatePumpSchedule($scheduleData, $scheduleData->selected_order_pump_schedules);
+
             DB::table("selected_order_pump_schedules")->insert($scheduleData->selected_order_pump_schedules);
 
         }
@@ -1326,18 +1270,11 @@ class ScheduleService
 
 
         if ($order->pump) {
+
             $pump = $scheduleData->pouring_pump['pump'];
             $pumpIndex = $scheduleData->pouring_pump['index'];
-
-            // $release_current_pump = false;
-            // $current_remaining_qty = $quantity - $this->batchingQty;
-            // $reamining_pump_trips = ceil($current_remaining_qty / $scheduleData->truck_capacity);
-            // $reamining_pump_trips = $reamining_pump_trips / $order->pump_qty;
-            // if ($reamining_pump_trips < 1)
-            // {
+           
             $release_current_pump = true;
-            // }
-
             $scheduleData->pumps_availability[$pumpIndex]['free_upto'] = $scheduleData->pouring_start->copy()->addSeconds();
             $scheduleData->pumps_availability[$pumpIndex]['location'] = $location;
 

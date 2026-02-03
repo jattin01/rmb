@@ -836,7 +836,7 @@ class OrderController extends Controller
                 ->where("selected_order_pump_schedules.group_company_id", $request->company_id)
                 ->where("selected_order_pump_schedules.user_id", auth()->user()->id)
                 ->whereBetween("selected_order_pump_schedules.qc_start", [$shift_start, $shift_end])
-                ->orderBy("selected_order_pump_schedules.id",'asc')
+                ->orderBy("selected_order_pump_schedules.pouring_start",'asc')
                 ->get()->toArray();
             $resultPM = PumpHelper::pumpsSchedule($schedulesPM, $startTime, $endTime, $request->schedule_date);
             
@@ -852,7 +852,7 @@ class OrderController extends Controller
                 ]
             ]);
         } catch (Exception $ex) {
-            //dd($ex);
+            dd($ex);
             return view('components.common.internal_error', ['message' => $ex->getMessage()]);
         }
     }

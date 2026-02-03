@@ -339,8 +339,9 @@ class OrderHelper
 
     public static function pumpScheduleData(array $value) : array
     {
-        $newStartDate = strtotime($value['cleaning_end']) < strtotime($value['qc_start']) ? strtotime($value['cleaning_end']) : strtotime($value['qc_start']);
-        $newEndDate = strtotime($value['cleaning_end']);
+       
+        $newStartDate = strtotime($value['qc_start']);
+        $newEndDate = strtotime($value['return_end']);
 
         $dTFS = date(ConstantHelper::COMPLETE_DATE_TIME_FORMAT, $newStartDate);
         $dTFE = date(ConstantHelper::COMPLETE_DATE_TIME_FORMAT, $newEndDate);
@@ -348,12 +349,13 @@ class OrderHelper
         $startDateTime = Carbon::parse($dTFS);
         $endDateTime = Carbon::parse($dTFE);
 
-        $totalMinutes = $endDateTime->diffInMinutes($startDateTime);
-
+        $totalHours = Carbon::parse($value['qc_start'])->diffInHours(Carbon::parse($value['return_end']));
+        $totalMinutes = $totalHours*60;
+        
         $colArr = [];
 
         $startDate = strtotime($value['qc_start']);
-        $endDate = strtotime($value['cleaning_end']);
+        $endDate = strtotime($value['return_end']);
         $startMinutes = date('i',$startDate);
         $endMinutes = date('i',$endDate);
 
@@ -361,13 +363,16 @@ class OrderHelper
         $travelPixles = 1.5 * ((int) $value['travel_time']);
         $inspPixels = 1.5 * ((int) $value['insp_time']);
         $pourPixles = 1.5 * ((int) $value['pouring_time']);
-        $waitingPixles = 1.5 * ((int) $value['waiting_time'])??0;
-        $installPixles = 1.5 * ((int) $value['install_time'])??0;
+        $waitingPixles = 1.5 * ((int) $value['waiting_time']);
+        $installPixles = 1.5 * ((int) $value['install_time']);
         $cleanPixels = 1.5 * ((int) $value['cleaning_time']);
         $returnPixles = 1.5 * ((int) $value['return_time']);
+       
         $totalPixles = 1.5 * ((int) $totalMinutes);
 
-        $hoursDifference = $totalMinutes / 60;
+
+        $hoursDifference = $totalHours;
+        
         $colspan =   ceil($hoursDifference) == 0 ? 1 : ceil($hoursDifference);
 
         if((int)$endMinutes > 0){
@@ -380,7 +385,7 @@ class OrderHelper
         $rData = [
             'id' => $value['id'],
             'pump_name' => $value['pump'],
-            'install_time'=> $value['installation_time'] ?? 10,
+            'install_time'=> $value['install_time'] ?? 10,
             'total_minutes' => $totalMinutes,
             'colspan' => $colspan,
             'margin' => $startDateTime,

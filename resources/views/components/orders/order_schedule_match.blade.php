@@ -941,7 +941,13 @@
 														<td></td>
 														<td></td>
 													</tr>
+													
+													
+
+													
+													
 													@foreach ($locationValue as $res)
+
 													<tr>
 														<td class = "{{ ($res['pump']) ? '' : 'orange-bgtd' }}">
 															<div class="d-flex justify-content-between align-items-center">
@@ -960,7 +966,7 @@
 																	</span>
 																	&nbsp;
 																	<span class = "small">
-																	{{number_format((($res['total_time'])/$res['total_actual_time'])*100,0)}} %
+																	{{number_format((($res['total_batching_qty'])/$pumps['total_batching_qty'])*100,0)}} %
 																	</span>
 
 																</div>
