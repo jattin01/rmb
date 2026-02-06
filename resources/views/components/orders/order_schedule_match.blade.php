@@ -604,7 +604,7 @@
 																<div class="progress constructions-chart ml{{$resData['start_minutes']}}">
 																
 																	@foreach ($resData['multi_pixels'] as $multiPixel)
-																		<div class="progress-bar {{$multiPixel['type'] == 'A' ? 'skyblue' : 'gap'}}" data-toggle="tooltip" data-placement="bottom" title="{{ isset($multiPixel['reason']) ? $multiPixel['reason'] : Carbon\Carbon::parse($multiPixel['loading_start']) -> format('h:i A') . ' to ' . Carbon\Carbon::parse($multiPixel['loading_end']) -> format('h:i A') . ' | ' . $multiPixel['mix'] . ' | ' . $multiPixel['batching_qty'] . ' CUM' . ' | Order - '. $multiPixel['order_no']}}" role="progressbar" style="margin-left: {{$multiPixel['margin']  . 'px'}}; padding : 0%; min-width : {{$multiPixel['loading_pixels'] ? $multiPixel['loading_pixels'] . 'px !important' : '0%'}}" aria-valuenow="30" aria-valuemin="0" aria-valuemax="100"></div>
+																		<div class="progress-bar {{$multiPixel['type'] == 'A' ? 'skyblue' : 'gap'}}" data-toggle="tooltip" data-placement="bottom" title="{{ isset($multiPixel['reason']) ? $multiPixel['reason'] : Carbon\Carbon::parse($multiPixel['loading_start']) -> format('h:i:s A') . ' to ' . Carbon\Carbon::parse($multiPixel['loading_end']) -> format('h:i:s A') . ' | ' . $multiPixel['mix'] . ' | ' . $multiPixel['batching_qty'] . ' CUM' . ' | Order - '. $multiPixel['order_no']}}" role="progressbar" style="margin-left: {{$multiPixel['margin']  . 'px'}}; padding : 0%; min-width : {{$multiPixel['loading_pixels'] ? $multiPixel['loading_pixels'] . 'px !important' : '0%'}}" aria-valuenow="30" aria-valuemin="0" aria-valuemax="100"></div>
 																	@endforeach
 
 																</div>
