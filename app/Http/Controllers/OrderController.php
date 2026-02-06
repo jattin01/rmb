@@ -726,9 +726,9 @@ class OrderController extends Controller
                 ->where("selected_order_schedules.group_company_id", $request->company_id)
                 ->where("selected_order_schedules.user_id", auth()->user()->id)
                 ->whereBetween("selected_order_schedules.loading_start", [$shift_start, $shift_end])
-                //->orderBy("selected_order_schedules.id")
+                ->orderBy("selected_order_schedules.loading_start")
                 ->get()->toArray();
-            // dd($schedulesBP);
+           
             $startTime = Carbon::parse($shift_start)->format("H:i");
             $endTime = (Carbon::parse($startTime)->addHours(39)->addMinutes(59))->format("H:i");
             // dd($orders);
@@ -750,6 +750,7 @@ class OrderController extends Controller
                 ->where("batching_plant_availability.user_id", auth()->user()->id)
                 ->orderBy("batching_plant_availability.free_from")
                 ->get()->toArray();
+                
 
 
             $resultBP = BatchingPlantHelper::batchingPlantSchedule($schedulesBP, $startTime, $endTime, $request->schedule_date, $bpScheduleGap);

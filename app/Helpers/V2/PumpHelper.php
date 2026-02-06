@@ -94,38 +94,6 @@ class PumpHelper
             /* ================= FIRST LOOP ================= */
             foreach ($pumps as $pumpKey => $pump) {
 
-                // $installMinutes = $pump['installation_time'] ?? 10;
-                // $travelMinutes = $scheduleData->travel_time ?? 0;
-                // $qcTime = $scheduleData->qc_time ?? 0;
-                // $loadingTime = $scheduleData->loading_time ?? 0;
-                // $insp_time = $scheduleData->insp_time ?? 0;
-
-
-
-
-
-                // $pumpCount = is_array($pumps) ? count($pumps) : $pumps->count();
-
-                // $subMinutes = $installMinutes + $travelMinutes + $qcTime + $insp_time;
-
-
-
-                // $new_pump_start = $pump_start_time;
-
-                // $new_pump_start = Carbon::parse($pump_start_time)
-                //     ->subMinutes($subMinutes)
-                //     ->format('Y-m-d H:i:s');
-
-                // Log::info("Checking Pump", [
-                //     'order' => $order->order_no,
-                //     'trip' => $trip,
-                //     'pump' => $pump['pump_name'],
-                //     'start' => $pump_start_time,
-                //     'end' => $pump_end_time,
-                //     'new_start' => $new_pump_start
-                // ]);
-
-
 
                 /* ---- capacity & assignment ---- */
                 if (!in_array($pump['pump_capacity'], $capacityKeys)) {
@@ -198,7 +166,6 @@ class PumpHelper
                 /* ---- AVAILABLE ---- */
                 $data = $pump;
                 $index = $pumpKey;
-                $pump_start_time = $pump_start_time;
                 break;
             }
 

@@ -516,6 +516,7 @@
 														@endforeach
 													</tr>
 													
+													
 													@foreach ($batching_plant['resData'] as $locationKey => $locationValue)
 													<tr class = "secound-table">
 														<td colspan="4">
@@ -589,15 +590,19 @@
 															if($bSchSlotTime == '05 AM') {
 																$bSchSlotTimeFlag = ($bSchSlotTimeFlag);
 															}
+															
+															
 
 														@endphp
+														
 
 														<td colspan="{{isset($resData['colspan']) ? $resData['colspan'] : 1}}">
+															
 
 																@if (isset($resData['id']))
 																<div class="main-progressbox">
 																<div class="progress constructions-chart ml{{$resData['start_minutes']}}">
-
+																
 																	@foreach ($resData['multi_pixels'] as $multiPixel)
 																		<div class="progress-bar {{$multiPixel['type'] == 'A' ? 'skyblue' : 'gap'}}" data-toggle="tooltip" data-placement="bottom" title="{{ isset($multiPixel['reason']) ? $multiPixel['reason'] : Carbon\Carbon::parse($multiPixel['loading_start']) -> format('h:i A') . ' to ' . Carbon\Carbon::parse($multiPixel['loading_end']) -> format('h:i A') . ' | ' . $multiPixel['mix'] . ' | ' . $multiPixel['batching_qty'] . ' CUM' . ' | Order - '. $multiPixel['order_no']}}" role="progressbar" style="margin-left: {{$multiPixel['margin']  . 'px'}}; padding : 0%; min-width : {{$multiPixel['loading_pixels'] ? $multiPixel['loading_pixels'] . 'px !important' : '0%'}}" aria-valuenow="30" aria-valuemin="0" aria-valuemax="100"></div>
 																	@endforeach
@@ -1227,6 +1232,7 @@
 								  <div id="collapseTwo" class="collapse" aria-labelledby="headingTwo" data-parent="#accordion">
 									<div class="card-body">
 										<div class="border-bottom mb-3"></div>
+										
 										@foreach ($bp_resource as $bp_resource_loc => $bp_resource_val)
 										<label class="requirementaccordion-label">{{$bp_resource_loc}} ({{$bp_resource_val->map->count()->sum()}})</label>
 										<div class="row mt-2 mb-3">
@@ -1270,6 +1276,7 @@
 									<div class="card-body">
 
 										<div class="border-bottom mb-3"></div>
+										
 										@foreach ($p_resource as $p_resource_loc => $p_resource_val)
 											<label class="requirementaccordion-label">{{$p_resource_loc}} (@php
 																				$p_resource_val_ctr = 0;
@@ -1281,7 +1288,8 @@
 																				echo($p_resource_val_ctr);
 																				@endphp)</label>
 											<div class="white-box">
-												@foreach ($p_resource_val as $p_resource_type => $p_resource_type_val)
+
+										@foreach ($p_resource_val as $p_resource_type => $p_resource_type_val)
 													<label class="pumps-label">{{$p_resource_type}} ({{$p_resource_type_val->map->count()->sum()}}) </label>
 													<div class="row mt-2 mb-3">
 														@foreach ($p_resource_type_val as $p_resource_cap => $p_resource_cap_val)
