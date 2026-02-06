@@ -357,6 +357,7 @@ class ScheduleService
         $scheduleData->total_time = $total_time;
         $scheduleData->loading_start = $deliveryDate->copy()->subMinutes($total_time);
         $scheduleData->loading_end = $scheduleData->loading_start->copy()->addMinutes($scheduleData->loading_time);
+        
         $scheduleData->qc_start = $scheduleData->loading_end->copy()->addMinute();
         $scheduleData->qc_end = $scheduleData->qc_start->copy()->addMinutes($scheduleData->qc_time);
         $scheduleData->travel_start = $scheduleData->qc_end->copy()->addMinute();
@@ -392,6 +393,7 @@ class ScheduleService
         if ($scheduleData->phase == 2) {
             $scheduleData->next_delivery_time = $scheduleData->pouring_start->copy()->subMinutes($pouring_interval);
         }
+        $scheduleData->loading_end = $scheduleData->loading_end->copy()->subSeconds();
     }
     private function adjustLocations($order, $batchingPlantAvailability)
     {
@@ -605,6 +607,7 @@ class ScheduleService
             $scheduleData->next_delivery_time = $scheduleData->pouring_start->copy()->subMinutes($scheduleData->pouring_interval);
         }
         $scheduleData->next_loading_time = $scheduleData->next_delivery_time->copy()->subMinutes($scheduleData->total_time);
+        $scheduleData->loading_end = $scheduleData->loading_end->copy()->subSeconds();
     }
     private function assignResources($order, ScheduleData &$scheduleData, $location, $trip)
     {
@@ -954,6 +957,7 @@ class ScheduleService
         $scheduleData->pouring_time = $pouringTime;
         $total_time = $loadingTime + $scheduleData->qc_time + $scheduleData->travel_time + $scheduleData->insp_time + 4;
         $scheduleData->loading_start = $scheduleData->delivery_time->copy()->subMinutes($total_time);
+         $scheduleData->loading_start = $scheduleData->delivery_time->copy()->subMinutes($total_time);
         $pouring_interval = $interval + $pouringTime;
         $scheduleData->pouring_interval = $pouring_interval;
         if ($order->pump_qty > 1) {
@@ -970,6 +974,7 @@ class ScheduleService
             }
         }
         $scheduleData->loading_end = $scheduleData->loading_start->copy()->addMinutes($loadingTime);
+         
         if (!isset($scheduleData->trip_time)) {
             $scheduleData->trip_time = $scheduleData->loading_start->copy()->diffInMinutes($lastLoadingTime);
         }
@@ -993,6 +998,7 @@ class ScheduleService
             $scheduleData->next_delivery_time = $scheduleData->pouring_start->copy()->subMinutes($pouring_interval);
         }
         $scheduleData->next_loading_time = $scheduleData->next_delivery_time->copy()->subMinutes($scheduleData->total_time);
+        $scheduleData->loading_end = $scheduleData->loading_end->copy()->subSeconds();
     }
     private function createScheduleEntry($order, ScheduleData $scheduleData, $location, $trip)
     {
