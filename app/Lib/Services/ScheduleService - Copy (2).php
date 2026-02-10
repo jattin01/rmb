@@ -28,7 +28,6 @@ class ScheduleData
     public $trip;
     public $order_interval;
     public $order_start_time;
-    public $transit_mixers;
     public $min_loading_start;
     public $order_end_time;
     public $company;
@@ -175,9 +174,7 @@ class ScheduleService
                 'orders_copy' => [],
                 'schedules' => [],
                 'selected_order_pump_schedules' => [],
-                'transit_mixers' => $transit_mixer_ids
             ]);
-            $scheduleData->transit_mixers = $transit_mixer_ids;
             $this->generateSchedule($scheduleData);
         } catch (\Exception $e) {
             //Log::error('Schedule Initialization Error: ' . $e->getMessage());
@@ -1037,7 +1034,7 @@ class ScheduleService
             "deviation" => abs(Carbon::parse($order->delivery_date)->diffInMinutes($scheduleData->pouring_start, false)),
         ];
     }
-
+   
 
 
     public function optimizeSchedules(ScheduleData $scheduleData)
@@ -1048,22 +1045,9 @@ class ScheduleService
                 $scheduleDate = Carbon::parse($scheduleData->schedule_date);
 
                 // 1️⃣ Get all transit mixers for this company
-                $allMixers = DB::table('transit_mixers')
-                    ->join('group_companies', function ($join) use ($scheduleData) {
-                        $join->on('group_companies.id', '=', 'transit_mixers.group_company_id');
-                    })
-                    ->select(
-                        'transit_mixers.id',
-                        'transit_mixers.truck_name',
-                        'transit_mixers.truck_capacity',
-                        'transit_mixers.loading_time',
-                        'group_companies.working_hrs_s',
-                        'group_companies.working_hrs_e'
-                    )
-                    ->where('group_companies.id', $scheduleData->company)
-                    ->where('transit_mixers.status', ConstantHelper::ACTIVE)
-                    ->whereIn('transit_mixers.id', (array) $scheduleData->transit_mixers)
-                    ->get();
+                $allMixers = TransitMixer::where("group_company_id", $scheduleData->company)
+                    ->where('status', 'Active')->get();
+
                 // 2️⃣ Build mixer availability array
                 // mixer_id => array of ['start' => Carbon, 'end' => Carbon]
                 $mixerAvailability = [];
@@ -1114,6 +1098,9 @@ class ScheduleService
 
 
                     foreach ($plantRecords as $row) {
+                        $order = OrderSchedule::where('order_no', $row->order_no)
+                            ->where('trip', $row->trip)
+                            ->where('group_company_id', $row->group_company_id)->first();
 
                         $loadingStart = Carbon::parse($row->loading_start);
                         $loadingEnd = Carbon::parse($row->loading_end);
@@ -1125,13 +1112,7 @@ class ScheduleService
                             $prevLoadingEnd = Carbon::parse($previous->loading_end);
                             $gapInMinutes = $prevLoadingEnd->diffInMinutes($loadingStart, false);
                             if ($gapInMinutes > 1) {
-                               $interval = $row->order->interval;
-                                if ($gapInMinutes > $interval) {
-                                    $bufferMinutes = $row->loading_time + $row->qc_time + $row->travel_time + $row->insp_time + 5 + $interval;
-                                    $loadingStart = $pouringStart->copy()->subMinutes($bufferMinutes);
-                                } else {
-                                    $loadingStart = $prevLoadingEnd->copy()->addMinute();
-                               }
+                                $loadingStart = $prevLoadingEnd->copy()->addMinute();
                                 $loadingEnd = $loadingStart->copy()->addMinutes($row->loading_time);
                             }
                         }
@@ -1155,20 +1136,6 @@ class ScheduleService
                             $waitingEnd = $waitingStart;
                         }
                         $waitingTime = $waitingStart->diffInMinutes($waitingEnd);
-                        $row->loading_start = $loadingStart;
-                        $row->loading_end = $loadingEnd;
-                        $row->qc_start = $qcStart;
-                        $row->qc_end = $qcEnd;
-                        $row->travel_start = $travelStart;
-                        $row->travel_end = $travelEnd;
-                        $row->insp_start = $inspStart;
-                        $row->insp_end = $inspEnd;
-                        $row->waiting_start = $waitingStart;
-                        $row->waiting_end = $waitingEnd;
-                        $row->waiting_time = $waitingTime;
-
-
-
 
                         // 4️⃣ Assign mixer considering availability and capacity
                         $row->transit_mixer = $this->assignAvailableMixer(
@@ -1186,10 +1153,38 @@ class ScheduleService
 
                         // 5️⃣ Save updated values
 
-
-
+                        $row->loading_start = $loadingStart;
+                        $row->loading_end = $loadingEnd;
+                        $row->qc_start = $qcStart;
+                        $row->qc_end = $qcEnd;
+                        $row->travel_start = $travelStart;
+                        $row->travel_end = $travelEnd;
+                        $row->insp_start = $inspStart;
+                        $row->insp_end = $inspEnd;
+                        $row->waiting_start = $waitingStart;
+                        $row->waiting_end = $waitingEnd;
+                        $row->waiting_time = $waitingTime;
 
                         $row->save();
+                        if ($order) {
+                            $order->fill(
+                                collect($row->only([
+                                    'loading_start',
+                                    'loading_end',
+                                    'qc_start',
+                                    'qc_end',
+                                    'travel_start',
+                                    'travel_end',
+                                    'insp_start',
+                                    'insp_end',
+                                    'waiting_start',
+                                    'waiting_end',
+                                    'waiting_time'
+                                ]))->toArray()
+                            );
+                            $order->save();
+                        }
+
                         $previous = $row;
                     }
                 }
@@ -1219,21 +1214,21 @@ class ScheduleService
         // 1️⃣ Try current mixer first
         if ($currentMixerName) {
             $currentMixer = $allMixers->firstWhere('truck_name', $currentMixerName);
-            // if ($currentMixer && $currentMixer->truck_capacity >= $orderQuantity) {
-            $busyIntervals = $mixerAvailability[$currentMixer->id] ?? [];
-            $isFree = true;
+           // if ($currentMixer && $currentMixer->truck_capacity >= $orderQuantity) {
+                $busyIntervals = $mixerAvailability[$currentMixer->id] ?? [];
+                $isFree = true;
 
-            foreach ($busyIntervals as $schedId => $interval) {
-                if ($schedId == $scheduleId)
-                    continue; // ignore current schedule
-                if ($loadingStart->lt($interval['end']) && $travelEnd->gt($interval['start'])) {
-                    $isFree = false;
-                    break;
+                foreach ($busyIntervals as $schedId => $interval) {
+                    if ($schedId == $scheduleId)
+                        continue; // ignore current schedule
+                    if ($loadingStart->lt($interval['end']) && $travelEnd->gt($interval['start'])) {
+                        $isFree = false;
+                        break;
+                    }
                 }
-            }
 
-            if ($isFree)
-                $assignedMixerId = $currentMixer->id;
+                if ($isFree)
+                    $assignedMixerId = $currentMixer->id;
             //}
         }
 

@@ -728,7 +728,7 @@ class OrderController extends Controller
                 ->whereBetween("selected_order_schedules.loading_start", [$shift_start, $shift_end])
                 ->orderBy("selected_order_schedules.loading_start")
                 ->get()->toArray();
-           
+
             $startTime = Carbon::parse($shift_start)->format("H:i");
             $endTime = (Carbon::parse($startTime)->addHours(39)->addMinutes(59))->format("H:i");
             // dd($orders);
@@ -750,7 +750,7 @@ class OrderController extends Controller
                 ->where("batching_plant_availability.user_id", auth()->user()->id)
                 ->orderBy("batching_plant_availability.free_from")
                 ->get()->toArray();
-                
+
 
 
             $resultBP = BatchingPlantHelper::batchingPlantSchedule($schedulesBP, $startTime, $endTime, $request->schedule_date, $bpScheduleGap);
@@ -781,6 +781,11 @@ class OrderController extends Controller
                     "selected_order_schedules.pouring_time",
                     "selected_order_schedules.pouring_start",
                     "selected_order_schedules.pouring_end",
+
+                    "selected_order_schedules.waiting_time",
+                    "selected_order_schedules.waiting_start",
+                    "selected_order_schedules.waiting_end",
+
                     "selected_order_schedules.cleaning_time",
                     "selected_order_schedules.cleaning_start",
                     "selected_order_schedules.cleaning_end",
@@ -790,10 +795,14 @@ class OrderController extends Controller
                     "selected_order_schedules.id"
                 )
                 ->where("selected_order_schedules.group_company_id", $request->company_id)->where("selected_order_schedules.user_id", auth()->user()->id)->whereBetween("selected_order_schedules.loading_start", [$shift_start, $shift_end])->orderBy("selected_order_schedules.loading_start")
-                // ->orderBy("selected_order_schedules.id")
-                ->get()->toArray();
+                ->orderBy("selected_order_schedules.loading_start")
+                ->get();
+            $uniqueSchedules = $schedulesTM->unique(function ($item) {
+                return serialize($item->toArray()); // serialize entire row
+            });
 
-            $resultTM = TransitMixerHelper::transitMixersSchedule($schedulesTM, $startTime, $endTime, $request->schedule_date);
+
+            $resultTM = TransitMixerHelper::transitMixersSchedule($uniqueSchedules->toArray(), $startTime, $endTime, $request->schedule_date);
 
             //Pumps
             $schedulesPM = SelectedOrderPumpSchedule::join("pumps", function ($query) {
@@ -837,10 +846,11 @@ class OrderController extends Controller
                 ->where("selected_order_pump_schedules.group_company_id", $request->company_id)
                 ->where("selected_order_pump_schedules.user_id", auth()->user()->id)
                 ->whereBetween("selected_order_pump_schedules.qc_start", [$shift_start, $shift_end])
-                ->orderBy("selected_order_pump_schedules.pouring_start",'asc')
+                ->orderBy("selected_order_pump_schedules.pouring_start", 'asc')
                 ->get()->toArray();
             $resultPM = PumpHelper::pumpsSchedule($schedulesPM, $startTime, $endTime, $request->schedule_date);
             
+
             return view("components.orders.order_schedule_match", [
                 'result' => $result,
                 'transit_mixer' => $resultTM,

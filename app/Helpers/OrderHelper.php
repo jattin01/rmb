@@ -295,6 +295,7 @@ class OrderHelper
 
         $startMinutes = date('i',$startDate);
         $endMinutes = date('i',$endDate);
+         $waitingPixles = 1.5 * ((int) $value['waiting_time'] );
 
         $loadingPixles = 1.5 * ((int) $value['loading_time'] );
         $qcPixles = 1.5 * ((int) $value['qc_time'] );
@@ -326,6 +327,7 @@ class OrderHelper
             'end_minutes' => $endMinutes,
             'total_pixels' => $totalPixles,
             'loading_pixels' => $loadingPixles,
+            'waiting_pixels'=>$waitingPixles,      
             'qc_pixels' => $qcPixles,
             'travel_pixels' => $travelPixles,
             'insp_pixels' => $inspPixles,

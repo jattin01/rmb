@@ -10,13 +10,13 @@ class SelectedOrderSchedule extends Model
     use HasFactory;
 
     protected $fillable = [];
-   
+
     protected $hidden = ['deleted_at'];
 
     public static function boot()
     {
         parent::boot();
-        if(\Auth::check()) {
+        if (\Auth::check()) {
 
             static::creating(function ($model) {
                 $user = \Auth::user();
@@ -32,6 +32,14 @@ class SelectedOrderSchedule extends Model
                 $user = \Auth::user();
                 $model->deleted_by = $user->id;
             });
-        }   
+        }
+    }
+    public function mixer()
+    {
+        return $this->belongsTo(TransitMixer::class, 'transit_mixer', 'truck_name');
+    }
+     public function order()
+    {
+        return $this->belongsTo(SelectedOrder::class, 'order_id');
     }
 }

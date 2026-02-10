@@ -106,6 +106,8 @@ class SelectedOrder extends Model
             "selected_order_schedules.batching_plant","selected_order_schedules.qc_time", "selected_order_schedules.qc_start", "selected_order_schedules.qc_end",
             "selected_order_schedules.loading_time", "selected_order_schedules.loading_start", "selected_order_schedules.loading_end",
             "selected_order_schedules.travel_time", "selected_order_schedules.travel_start", "selected_order_schedules.travel_end",
+
+             "selected_order_schedules.waiting_time", "selected_order_schedules.waiting_start", "selected_order_schedules.waiting_end",
             "selected_order_schedules.insp_time", "selected_order_schedules.insp_start", "selected_order_schedules.insp_end",
             "selected_order_schedules.pouring_time", "selected_order_schedules.pouring_start", "selected_order_schedules.pouring_end",
             "selected_order_schedules.cleaning_time", "selected_order_schedules.cleaning_start", "selected_order_schedules.cleaning_end",
