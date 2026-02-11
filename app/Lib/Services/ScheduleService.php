@@ -610,7 +610,8 @@ class ScheduleService
     {
         $this->assignBatchingPlant($scheduleData, $location, $trip);
         $this->assignTransitMixer($scheduleData, $location, $trip);
-        $this->assignPump($order, $scheduleData, $location, $trip);
+        if ($trip <= $scheduleData->pump_qty)
+            $this->assignPump($order, $scheduleData, $location, $trip);
     }
     private function assignBatchingPlant(ScheduleData &$scheduleData, $location, $trip)
     {
@@ -677,7 +678,7 @@ class ScheduleService
                 $scheduleData->assigned_pumps,
             );
             if (isset($scheduleData->pouring_pump['pump']['pump_name'])) {
-                //Log::info("Pump Assigned: " . $trip . "--" . $scheduleData->pouring_pump['pump']['pump_name']);
+                Log::info("Pump Assigned: " . $trip . "--" . $scheduleData->pouring_pump['pump']['pump_name']);
             } else {
                 $reason = 'Pump Not Found for Order';
                 if (isset($scheduleData->batching_plant['data']['plant_name'])) {
@@ -764,11 +765,14 @@ class ScheduleService
     }
     private function updatePumpSchedule(ScheduleData &$scheduleData, $selectedPump)
     {
+
+        $scheduleDataIndex = count($scheduleData->schedules) - 1;
         $count = 0;
         foreach ($selectedPump as $i => $pump) {
             $pump_name = Pump::where('pump_name', $selectedPump[$i]['pump'])
                 ->first();
             $installMinutes = $pump_name && $pump_name->installation_time ? $pump_name->installation_time : 10;
+
             $install_end = Carbon::parse($scheduleData->min_loading_start)->subMinutes(1);
             $install_time = $pump_name && $pump_name->installation_time ? $pump_name->installation_time : 10;
             $install_start = Carbon::parse($install_end)->subMinutes($install_time);
@@ -782,12 +786,33 @@ class ScheduleService
             $pouring_start = Carbon::parse($scheduleData->schedules[$count]['pouring_start']);
             $waiting_end = Carbon::parse($pouring_start)->subMinutes(1);
             $waiting_time = Carbon::parse($waiting_start)->diffInMinutes(Carbon::parse($waiting_end));
-            $pouring_time = Carbon::parse($pouring_start)->diffInMinutes(Carbon::parse($selectedPump[$i]['pouring_end']));
+            $pouring_end = $scheduleData->schedules[$scheduleDataIndex]['pouring_end'];
+            $pouring_time = $pouring_start->diffInMinutes($pouring_end);
+
+            $clean_start = $pouring_end->copy()->addMinute();
+            $clean_end = $clean_start->copy()->addMinutes($selectedPump[$i]['cleaning_time']);
+            $return_start = $clean_end->copy()->addMinute();
+            $return_end = $return_start->copy()->addMinutes($selectedPump[$i]['return_time']);
+
+
             $selectedPump[$i]['qc_start'] = $qc_start;
             $selectedPump[$i]['qc_end'] = $qc_end;
             $selectedPump[$i]['travel_start'] = $travel_start;
             $selectedPump[$i]['travel_end'] = $travel_end;
             $selectedPump[$i]['pouring_start'] = $pouring_start;
+            $selectedPump[$i]['pouring_end'] = $pouring_end;
+            $selectedPump[$i]['pouring_time'] = $pouring_time;
+
+
+
+            $selectedPump[$i]['cleaning_start'] = $clean_start;
+            $selectedPump[$i]['cleaning_end'] = $clean_end;
+            $selectedPump[$i]['return_start'] = $return_start;
+            $selectedPump[$i]['return_end'] = $return_end;
+
+
+
+
             $selectedPump[$i]['insp_start'] = $insp_start;
             $selectedPump[$i]['insp_end'] = $insp_end;
             $selectedPump[$i]['install_start'] = $install_start;
@@ -798,6 +823,7 @@ class ScheduleService
             $selectedPump[$i]['pouring_time'] = $pouring_time;
             $selectedPump[$i]['waiting_end'] = $waiting_end;
             $count++;
+            $scheduleDataIndex--;
         }
         $scheduleData->selected_order_pump_schedules = $selectedPump;
     }
@@ -1125,13 +1151,13 @@ class ScheduleService
                             $prevLoadingEnd = Carbon::parse($previous->loading_end);
                             $gapInMinutes = $prevLoadingEnd->diffInMinutes($loadingStart, false);
                             if ($gapInMinutes > 1) {
-                               $interval = $row->order->interval;
+                                $interval = $row->order->interval;
                                 if ($gapInMinutes > $interval) {
                                     $bufferMinutes = $row->loading_time + $row->qc_time + $row->travel_time + $row->insp_time + 5 + $interval;
                                     $loadingStart = $pouringStart->copy()->subMinutes($bufferMinutes);
                                 } else {
                                     $loadingStart = $prevLoadingEnd->copy()->addMinute();
-                               }
+                                }
                                 $loadingEnd = $loadingStart->copy()->addMinutes($row->loading_time);
                             }
                         }
