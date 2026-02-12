@@ -849,7 +849,7 @@ class OrderController extends Controller
                 ->orderBy("selected_order_pump_schedules.pouring_start", 'asc')
                 ->get()->toArray();
             $resultPM = PumpHelper::pumpsSchedule($schedulesPM, $startTime, $endTime, $request->schedule_date);
-            
+
 
             return view("components.orders.order_schedule_match", [
                 'result' => $result,
@@ -863,8 +863,13 @@ class OrderController extends Controller
                 ]
             ]);
         } catch (Exception $ex) {
-            dd($ex);
-            return view('components.common.internal_error', ['message' => $ex->getMessage()]);
+            $message="";
+            $lastUpdated = BatchingPlantAvailability::orderBy('updated_at', 'desc')->first();
+
+            if ($lastUpdated) {
+                $message = $lastUpdated->reason; // apna column name likhen
+            }
+            return view('components.common.internal_error', compact('message'));
         }
     }
 

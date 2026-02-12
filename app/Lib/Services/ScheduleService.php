@@ -22,6 +22,7 @@ use App\Models\TransitMixer;
 class ScheduleData
 {
     public $user_id;
+    public $assigned_pumps_per_order;
     public $pump_loading_time;
     public $assign_pump_slot;
     public $interval;
@@ -218,6 +219,7 @@ class ScheduleService
                 $scheduleData->assign_pump_slot = [];
                 $scheduleData->assigned_plants = $orderSchedule->assigned_plants;
                 $scheduleData->assigned_tms = $orderSchedule->assigned_tms;
+
             }
             $this->optimizeSchedules($scheduleData);
 
@@ -266,6 +268,7 @@ class ScheduleService
     }
     private function initializeVariables(ScheduleData &$scheduleData)
     {
+        $scheduleData->assigned_pumps_per_order = 1;
         $scheduleData->phase = 1;
         $scheduleData->shift_end_exit = 0;
         $scheduleData->early_trip = null;
@@ -571,6 +574,7 @@ class ScheduleService
     }
     private function updateSchedule(ScheduleData &$scheduleData, &$order)
     {
+        $scheduleData->assigned_pumps_per_order = 1;
         $order->delivered_quantity = 0;
         $scheduleData->delivered_quantity = 0;
         if ($scheduleData->phase == 1) {
@@ -650,7 +654,7 @@ class ScheduleService
         if (isset($scheduleData->transit_mixer['data']['truck_name'])) {
             //Log::info("Transit Mixer Assigned: " . $trip . "--" . $scheduleData->transit_mixer['data']['truck_name']);
         } else {
-            $reason = 'Transit Mixer Not Found for Order';
+            $reason = 'Transit Mixer Not Found for Order' . $scheduleData->order_no;
             if (isset($scheduleData->batching_plant['data']['plant_name'])) {
                 BatchingPlantAvailability::create(['group_company_id' => $scheduleData->company, 'location' => $scheduleData->location, 'plant_name' => $scheduleData->batching_plant['data']['plant_name'], 'plant_capacity' => 0, 'free_from' => $scheduleData->loading_start, 'free_upto' => $scheduleData->loading_start, 'user_id' => $scheduleData->user_id, 'reason' => $reason]);
             }
@@ -677,10 +681,12 @@ class ScheduleService
                 $scheduleData->assigned_pump,
                 $scheduleData->assigned_pumps,
             );
+            $scheduleData->assigned_pumps_per_order++;
             if (isset($scheduleData->pouring_pump['pump']['pump_name'])) {
                 Log::info("Pump Assigned: " . $trip . "--" . $scheduleData->pouring_pump['pump']['pump_name']);
+
             } else {
-                $reason = 'Pump Not Found for Order';
+                $reason = 'Pump Not Found for Order ' . $scheduleData->order_no;
                 if (isset($scheduleData->batching_plant['data']['plant_name'])) {
                     BatchingPlantAvailability::create(['group_company_id' => $scheduleData->company, 'location' => $scheduleData->location, 'plant_name' => $scheduleData->batching_plant['data']['plant_name'], 'plant_capacity' => 0, 'free_from' => $scheduleData->loading_start, 'free_upto' => $scheduleData->loading_start, 'user_id' => $scheduleData->user_id, 'reason' => $reason]);
                 }

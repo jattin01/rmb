@@ -6,7 +6,7 @@
             <div class="row">
                 <div class="col-md-12 text-center">
                     <img src = "{{asset('assets/img/cancelled-imgpop.svg')}}" />
-                    <h6 style = "margin : 1rem;">Oops ! Something went wrong on our end. Please try again later.</h6>
+                    <h6 style = "margin : 1rem;">{{isset($message) ? 'INTERNAL SERVER ERROR - ' . $message : ''}}</h6>
                     <a href="{{route('dashboard.index')}}" class="btn back-btn">Home</a>
                 </div>
             </div>
