@@ -665,6 +665,7 @@ class ScheduleService
     {
 
         if ($order->pump) {
+            $old_pump =  $scheduleData->pouring_pump;
             $scheduleData->pouring_pump = PumpHelper::getAvailablePumps(
                 $scheduleData,
                 $scheduleData->pumps_availability,
@@ -686,6 +687,7 @@ class ScheduleService
                 Log::info("Pump Assigned: " . $trip . "--" . $scheduleData->pouring_pump['pump']['pump_name']);
 
             } else {
+                 $scheduleData->pouring_pump = $old_pump;
                 $reason = 'Pump Not Found for Order ' . $scheduleData->order_no;
                 if (isset($scheduleData->batching_plant['data']['plant_name'])) {
                     BatchingPlantAvailability::create(['group_company_id' => $scheduleData->company, 'location' => $scheduleData->location, 'plant_name' => $scheduleData->batching_plant['data']['plant_name'], 'plant_capacity' => 0, 'free_from' => $scheduleData->loading_start, 'free_upto' => $scheduleData->loading_start, 'user_id' => $scheduleData->user_id, 'reason' => $reason]);
