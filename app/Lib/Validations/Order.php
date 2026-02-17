@@ -486,6 +486,7 @@ class Order
     }
     public function createOrderAdmin(): ValidationValidator
     {
+        
         $validator = Validator::make($this->request->all(), [
                 'customer_id' => [
                     'required',
@@ -548,11 +549,7 @@ class Order
                     // 'integer',
                     'exists:structural_references,id'
                 ],
-                'delivery_date' => [
-                    'required',
-                    'date',
-                    'after_or_equal:today'
-                ],
+             
                 'delivery_time' => [
                     'required',
                     'date_format:H:i'

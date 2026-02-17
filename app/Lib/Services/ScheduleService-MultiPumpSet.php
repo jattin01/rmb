@@ -24,8 +24,6 @@ class ScheduleData
     public $user_id;
     public $assigned_pumps_per_order;
     public $pump_busy_slots;
-    public $truck_busy_slots;
-    public $plant_busy_slots;
     public $pump_loading_time;
     public $assign_pump_slot;
     public $interval;
@@ -180,17 +178,12 @@ class ScheduleService
                 'schedules' => [],
                 'selected_order_pump_schedules' => [],
                 'transit_mixers' => $transit_mixer_ids,
-                'pump_busy_slots' => [],
-                'truck_busy_slots' => [],
-                'plant_busy_slots' => [],
+                'pump_busy_slots'=>[]
             ]);
+            $scheduleData->transit_mixers = $transit_mixer_ids;
             $this->generateSchedule($scheduleData);
-            $this->optimizeSchedules($scheduleData);
-
-           
-
         } catch (\Exception $e) {
-            Log::error('Schedule Initialization Error: ' . $e->getMessage());
+            //Log::error('Schedule Initialization Error: ' . $e->getMessage());
         }
     }
     private function clearPreviousSchedules($company, $user_id, $shift_start, $shift_end): void
@@ -209,7 +202,6 @@ class ScheduleService
         try {
             $this->initializeVariables($scheduleData);
             $orders = $this->fetchOrders($scheduleData);
-
             //Log::info("Total Orders: " . count($orders));
             foreach ($orders as $orderKey => $order) {
                 $scheduleData->interval = 1;
@@ -225,17 +217,16 @@ class ScheduleService
                 $scheduleData->tms_availability = $orderSchedule->tms_availability;
                 $scheduleData->pumps_availability = $orderSchedule->pumps_availability;
                 $scheduleData->pump_busy_slots = $orderSchedule->pump_busy_slots;
-                $scheduleData->truck_busy_slots = $orderSchedule->truck_busy_slots;
-                $scheduleData->plant_busy_slots = $orderSchedule->plant_busy_slots;
                 $scheduleData->bps_availability = $orderSchedule->bps_availability;
                 $scheduleData->assigned_pumps = $orderSchedule->assigned_pumps;
                 $scheduleData->assigned_plants = $orderSchedule->assigned_plants;
                 $scheduleData->assigned_tms = $orderSchedule->assigned_tms;
 
             }
+            $this->optimizeSchedules($scheduleData);
 
         } catch (\Exception $ex) {
-            Log::error('Error in generateSchedule: ' . $ex->getMessage());
+            //Log::error('Error in generateSchedule: ' . $ex->getMessage());
             throw $ex;
         }
     }
@@ -273,7 +264,6 @@ class ScheduleService
             $this->resetOrderVariables($scheduleData, $order);
             $this->processTrips($order, $scheduleData, $generatedScheduleData, $location, $orderKey);
             if ($scheduleData->is_completed) {
-
                 if ($order->pump) {
                     $this->assignPump($order, $scheduleData, $location);
                 }
@@ -297,7 +287,7 @@ class ScheduleService
     }
     private function fetchOrders(ScheduleData $scheduleData)
     {
-        $orders = SelectedOrder::select(
+        return SelectedOrder::select(
             "group_company_id",
             "id",
             "og_order_id",
@@ -329,10 +319,6 @@ class ScheduleService
             ->orderBy('priority', 'ASC')
             ->orderBy('quantity', 'DESC')
             ->get();
-
-        // $this->prepareForOrder(SelectedOrder $orders,$scheduleData,$scheduleData->location);
-        return $orders;
-
     }
     private function resetOrderVariables(ScheduleData &$scheduleData, $order, $truckQty = 8)
     {
@@ -421,9 +407,15 @@ class ScheduleService
     {
         $quantity = $order->quantity;
         $trip = 1;
+
         $scheduleData->trip = 1;
         $scheduleData->phase_seq = 1;
+
+        $toleranceMinutes = $scheduleData->order_interval;
+
         while ($quantity > 0) {
+
+            // -------- PHASE TRACKING ----------
             if ($scheduleData->phase == 1) {
                 if ($scheduleData->late_trip->lt($scheduleData->delivery_time)) {
                     $scheduleData->late_trip = $scheduleData->delivery_time->copy();
@@ -433,150 +425,97 @@ class ScheduleService
                     $scheduleData->early_trip = $scheduleData->delivery_time->copy();
                 }
             }
-            if ($scheduleData->loading_start->gt($scheduleData->shift_end)) {
+
+            // -------- SHIFT VALIDATION ----------
+            if (
+                $scheduleData->loading_start->gt($scheduleData->shift_end) ||
+                $scheduleData->loading_start->lt($scheduleData->shift_start)
+            ) {
                 $scheduleData->shift_end_exit = 2;
                 break;
             }
-            if ($scheduleData->loading_start->lt($scheduleData->shift_start)) {
-                $scheduleData->shift_end_exit = 2;
-                break;
-            }
-            //Log::info("--TRIP--" . $trip . "--LS -" . $scheduleData->loading_start .
-            // "--LE--" . $scheduleData->loading_end .
-            // "--DT--" . $scheduleData->delivery_time);
+
+            // -------- ASSIGN RESOURCES ----------
             $this->assignResources($order, $scheduleData, $location, $trip);
+
             if ($this->allResourcesAssigned($scheduleData)) {
-                //Log::info("All Resources Assigned for Trip:  $trip -- order($orderKey)-" . $order->order_no . '--qty--' . $quantity . ' -phase-' . $scheduleData->phase . '-LS-' . $scheduleData->loading_start);
-                $scheduleData->batching_qty = min($scheduleData->transit_mixer['data']['truck_capacity'], $quantity);
+
+                // -------- SUCCESS CASE ----------
+                $scheduleData->batching_qty = min(
+                    $scheduleData->transit_mixer['data']['truck_capacity'],
+                    $quantity
+                );
+
                 $scheduleData->next_qty = $quantity - $scheduleData->batching_qty;
                 $scheduleData->phase_seq++;
+
                 $this->finalizeTrip($order, $scheduleData, $location, $trip, $quantity, $orderKey);
+
                 $quantity -= $scheduleData->batching_qty;
                 $trip++;
+
                 $scheduleData->trip = $trip;
                 $scheduleData->current_interval = 1;
+
             } else {
-                //Log::info("Resource Not Found: " . $trip . '-- order-' . $order->order_no . ' -phase-' . $scheduleData->phase . '-LS-' . $scheduleData->loading_start . '-- shift end-' . $scheduleData->shift_end_exit);
+
+                $found = $this->tryNearbySlotWithoutReset(
+                    $order,
+                    $scheduleData,
+                    $location,
+                    $trip,
+                    $toleranceMinutes
+                );
+
+                if ($found) {
+                    continue;
+                }
+
                 if ($scheduleData->current_interval <= $scheduleData->order_interval) {
                     $scheduleData->current_interval++;
-                } else {
-                    if ($scheduleData->phase === 2) {
-                        $nextDeliveryTime = $scheduleData->order_start->copy()->subMinutes(1);
-                    } else {
-                        $nextDeliveryTime = $scheduleData->order_start->copy()->addMinutes(1);
-                    }
-                    $shiftEndExit = $scheduleData->shift_end_exit;
-                    $phase = $scheduleData->phase;
-                    $earlyTrip = null;
-                    $lateTrip = null;
-                    $lastResponse = $scheduleData->lastResponse;
-                    $interval = $scheduleData->interval;
-                    $scheduleData = clone $generatedScheduleData;
-                    $scheduleData->interval = $interval;
-                    $scheduleData->order_start = $nextDeliveryTime;
-                    $scheduleData->delivery_time = $nextDeliveryTime;
-                    $earlyTrip = $lateTrip = $nextDeliveryTime;
-                    $scheduleData->order_no = $order->order_no;
-                    $scheduleData->phase = $phase;
-                    $scheduleData->shift_end_exit = $shiftEndExit;
-                    $scheduleData->early_trip = $earlyTrip;
-                    $scheduleData->late_trip = $lateTrip;
-                    $scheduleData->lastResponse = $lastResponse;
-                    $this->resetOrderVariables($scheduleData, $order);
-                    $quantity = $order->quantity;
-                    $trip = 1;
-                    $scheduleData->trip = 1;
-                    $scheduleData->phase_seq = 1;
-                    $this->updateSchedule($scheduleData, $order);
+                    continue;
                 }
-                if ($scheduleData->trip > 1) {
-                    //Log::info(" if trip GT 1 Resource Not Found: " . $trip . '-- order-' . $order->order_no . ' -phase-' . $scheduleData->phase . '-LS-' . $scheduleData->loading_start . '-- shift end-' . $scheduleData->shift_end_exit . '-CI-' . $scheduleData->current_interval);
-                    if ($order->flexibility == 1 && $scheduleData->phase == 1) {
-                        //Log::info(" if trip flexible GT 1 Resource Not Found: " . $trip . '-- order-' . $order->order_no . ' -phase-' . $scheduleData->phase . '-LS-' . $scheduleData->loading_start . '-- shift end-' . $scheduleData->shift_end_exit . '-CI-' . $scheduleData->current_interval);
-                        $scheduleData->phase = 2;
-                        $scheduleData->phase_seq = 1;
-                        $pouring_interval = $scheduleData->current_interval + $scheduleData->pouring_interval;
-                        if ($order->pump_qty > 1) {
-                            $pouring_interval++;
-                            ;
-                        } else if ($order->multi_pouring > 1) {
-                            $pouring_interval++;
-                        }
-                        $scheduleData->next_delivery_time = $scheduleData->early_trip->copy()->subMinutes($pouring_interval);
-                        $this->generateNextSlot($scheduleData, $order);
-                        continue;
-                    } else {
-                        //Log::info(" if trip not flexible GT 1 Resource Not Found: " . $trip . '-- order-' . $order->order_no . ' -phase-' . $scheduleData->phase . '-LS-' . $scheduleData->loading_start . '-- shift end-' . $scheduleData->shift_end_exit . '-CI-' . $scheduleData->current_interval);
-                        if ($scheduleData->current_interval <= $scheduleData->order_interval) {
-                            if ($scheduleData->phase == 1) {
-                                $scheduleData->next_delivery_time = $scheduleData->delivery_time->copy()->addMinutes();
-                            } else {
-                                $scheduleData->next_delivery_time = $scheduleData->delivery_time->copy()->subMinutes($pouring_interval);
-                            }
-                            $this->generateNextSlot($scheduleData, $order);
-                            continue;
-                        }
-                        if ($trip > 1 && ($scheduleData->pump_qty && $scheduleData->pump_qty > 0) && empty($scheduleData->pouring_pump)) {
-                            //Log::info(" if trip not flexible 1 if GT 1 Resource Not Found: " . $trip . '-- order-' . $order->order_no . ' -phase-' . $scheduleData->phase . '-LS-' . $scheduleData->loading_start . '-- shift end-' . $scheduleData->shift_end_exit . '-CI-' . $scheduleData->current_interval);
-                            $allotedPumpsQty = count($scheduleData->assigned_pumps);
-                            $pouringTime = round(($order->pouring_time / 8) * $scheduleData->batching_qty);
-                            $pouring_interval = $scheduleData->current_interval + $pouringTime;
-                            $pouring_interval = round(($pouring_interval / $allotedPumpsQty), 0);
-                            if ($scheduleData->phase == 2) {
-                                $scheduleData->next_delivery_time = $scheduleData->early_trip->copy()->subMinutes($pouring_interval);
-                            } else {
-                                $scheduleData->next_delivery_time = $scheduleData->delivery_time->copy()->addMinutes();
-                            }
-                            $scheduleData->early_trip = $scheduleData->next_delivery_time;
-                            $this->generateNextSlot($scheduleData, $order);
-                            continue;
-                        }
-                        $this->setLastTripResponse($scheduleData);
-                        if ($scheduleData->shift_end_exit == 0) {
-                            $scheduleData->phase = 1;
-                        }
-                        $scheduleData->delivery_time = $scheduleData->delivery_time->copy()->subMinutes(1);
-                        $quantity = $order->quantity;
-                        $trip = 1;
-                        $scheduleData->trip = 1;
-                    }
-                } else {
-                    if ($scheduleData->phase === 2) {
-                        $nextDeliveryTime = $scheduleData->order_start->copy()->subMinutes(1);
-                    } else {
-                        $nextDeliveryTime = $scheduleData->order_start->copy()->addMinutes(1);
-                    }
-                    $shiftEndExit = $scheduleData->shift_end_exit;
-                    $phase = $scheduleData->phase;
-                    $earlyTrip = null;
-                    $lateTrip = null;
-                    $lastResponse = $scheduleData->lastResponse;
-                    $interval = $scheduleData->interval;
-                    $scheduleData = clone $generatedScheduleData;
-                    $scheduleData->interval = $interval;
-                    $scheduleData->order_start = $nextDeliveryTime;
-                    $scheduleData->delivery_time = $nextDeliveryTime;
-                    $earlyTrip = $lateTrip = $nextDeliveryTime;
-                    $scheduleData->order_no = $order->order_no;
-                    $scheduleData->phase = $phase;
-                    $scheduleData->shift_end_exit = $shiftEndExit;
-                    $scheduleData->early_trip = $earlyTrip;
-                    $scheduleData->late_trip = $lateTrip;
-                    $scheduleData->lastResponse = $lastResponse;
-                    $this->resetOrderVariables($scheduleData, $order);
-                    $quantity = $order->quantity;
-                    $trip = 1;
-                    $scheduleData->trip = 1;
-                    $scheduleData->phase_seq = 1;
-                    $this->updateSchedule($scheduleData, $order);
-                }
+
+                $nextDeliveryTime = ($scheduleData->phase === 2)
+                    ? $scheduleData->order_start->copy()->subMinutes(1)
+                    : $scheduleData->order_start->copy()->addMinutes(1);
+
+                $shiftEndExit = $scheduleData->shift_end_exit;
+                $phase = $scheduleData->phase;
+                $lastResponse = $scheduleData->lastResponse;
+                $interval = $scheduleData->interval;
+        
+                $scheduleData = clone $generatedScheduleData;
+
+                $scheduleData->interval = $interval;
+                $scheduleData->order_start = $nextDeliveryTime;
+                $scheduleData->delivery_time = $nextDeliveryTime;
+                $scheduleData->order_no = $order->order_no;
+                $scheduleData->phase = $phase;
+                $scheduleData->shift_end_exit = $shiftEndExit;
+                $scheduleData->early_trip = $nextDeliveryTime;
+                $scheduleData->late_trip = $nextDeliveryTime;
+                $scheduleData->lastResponse = $lastResponse;
+
+                $this->resetOrderVariables($scheduleData, $order);
+
+                $quantity = $order->quantity;
+                $trip = 1;
+
+                $scheduleData->trip = 1;
+                $scheduleData->phase_seq = 1;
+
+                $this->updateSchedule($scheduleData, $order);
             }
+
+            // -------- COMPLETION ----------
             if ($quantity <= 0) {
                 $scheduleData->is_completed = 1;
                 break;
             }
         }
     }
+
     private function setLastTripResponse(ScheduleData &$scheduleData)
     {
         if (!isset($scheduleData->lastResponse)) {
@@ -637,7 +576,6 @@ class ScheduleService
     }
     private function assignBatchingPlant(ScheduleData &$scheduleData, $location, $trip)
     {
-        $slots = $scheduleData->plant_busy_slots;
         $scheduleData->batching_plant = BatchingPlantHelper::getAvailableBatchingPlants(
             $scheduleData->bps_availability,
             $scheduleData->company,
@@ -648,17 +586,9 @@ class ScheduleService
             $scheduleData->restriction_end,
             $trip,
             $scheduleData->assigned_plants,
-            $scheduleData->order_no,
-            $slots
+            $scheduleData->order_no
         );
         if (isset($scheduleData->batching_plant['data']['plant_name'])) {
-            $scheduleData->plant_busy_slots[] = [
-                'start' => $scheduleData->loading_start->copy(),
-                'end' => $scheduleData->loading_end->copy(),
-                'plant_id' => $scheduleData->batching_plant['data']['plant_name'],
-                'order_no' => $scheduleData->order_no
-            ];
-
             // //Log::info("Batching Plant Assigned: " . $trip . "--" . $scheduleData->batching_plant['data']['plant_name']."From: ".$scheduleData->loading_start." To:".$scheduleData->loading_end);
         } else {
             ////Log::info("Batching Plant Not found: " . $trip . "--" ."From: ".$scheduleData->loading_start." To:".$scheduleData->loading_end);
@@ -666,9 +596,6 @@ class ScheduleService
     }
     private function assignTransitMixer(ScheduleData &$scheduleData, $location, $trip)
     {
-        $slots = $scheduleData->truck_busy_slots;
-
-
         $scheduleData->transit_mixer = TransitMixerHelper::getAvailableTrucks(
             $scheduleData->tms_availability,
             $scheduleData->truck_capacity,
@@ -679,19 +606,10 @@ class ScheduleService
             $scheduleData->restriction_end,
             $location,
             $trip,
-            $scheduleData->assigned_tms,
-            $slots,
-            $scheduleData->order_no
+            $scheduleData->assigned_tms
         );
         if (isset($scheduleData->transit_mixer['data']['truck_name'])) {
-            $scheduleData->truck_busy_slots[] = [
-                'start' => $scheduleData->loading_start->copy(),
-                'end' => $scheduleData->return_end->copy(),
-                'truck_id' => $scheduleData->transit_mixer['data']['truck_name'],
-                'order_no' => $scheduleData->order_no,
-                'cap' => $scheduleData->transit_mixer['data']['truck_capacity'],
-            ];
-
+            ////Log::info("Transit Mixer Assigned: " . $trip . "--" . $scheduleData->transit_mixer['data']['truck_name']);
         } else {
             $reason = 'Transit Mixer Not Found for Order' . $scheduleData->order_no;
             if (isset($scheduleData->batching_plant['data']['plant_name'])) {
@@ -774,39 +692,39 @@ class ScheduleService
         $scheduleData->delivered_quantity += $scheduleData->batching_qty;
         $truck = $scheduleData->transit_mixer['data'];
         $truckIndex = $scheduleData->transit_mixer['index'];
-        // $scheduleData->tms_availability[$truckIndex]['free_upto'] = $scheduleData->loading_start->copy()->addSeconds()->format('Y-m-d H:i:s');
-        // $scheduleData->tms_availability[$truckIndex]['location'] = $location;
-        // if (
-        //     isset($scheduleData->tms_availability[$truckIndex]['free_from']) &&
-        //     $scheduleData->tms_availability[$truckIndex]['free_upto'] <= $scheduleData->tms_availability[$truckIndex]['free_from']
-        // ) {
-        //     unset($scheduleData->tms_availability[$truckIndex]);
-        // }
-        // $scheduleData->tms_availability[] = array(
-        //     'truck_name' => $truck['truck_name'],
-        //     'truck_capacity' => $truck['truck_capacity'],
-        //     'loading_time' => $scheduleData->loading_time,
-        //     'free_from' => $scheduleData->return_end->subSeconds()->format('Y-m-d H:i:s'),
-        //     'free_upto' => $truck['free_upto'],
-        //     'location' => $location,
-        // );
+        $scheduleData->tms_availability[$truckIndex]['free_upto'] = $scheduleData->loading_start->copy()->addSeconds()->format('Y-m-d H:i:s');
+        $scheduleData->tms_availability[$truckIndex]['location'] = $location;
+        if (
+            isset($scheduleData->tms_availability[$truckIndex]['free_from']) &&
+            $scheduleData->tms_availability[$truckIndex]['free_upto'] <= $scheduleData->tms_availability[$truckIndex]['free_from']
+        ) {
+            unset($scheduleData->tms_availability[$truckIndex]);
+        }
+        $scheduleData->tms_availability[] = array(
+            'truck_name' => $truck['truck_name'],
+            'truck_capacity' => $truck['truck_capacity'],
+            'loading_time' => $scheduleData->loading_time,
+            'free_from' => $scheduleData->return_end->subSeconds()->format('Y-m-d H:i:s'),
+            'free_upto' => $truck['free_upto'],
+            'location' => $location,
+        );
 
         $plant = $scheduleData->batching_plant['data'];
-        // $plantIndex = $scheduleData->batching_plant['index'];
-        // $scheduleData->bps_availability[$plantIndex]['free_upto'] = $scheduleData->loading_start->copy()->addSeconds();
-        // if (
-        //     isset($scheduleData->bps_availability[$plantIndex]['free_from']) &&
-        //     $scheduleData->bps_availability[$plantIndex]['free_upto'] <= $scheduleData->bps_availability[$plantIndex]['free_from']
-        // ) {
-        //     unset($scheduleData->bps_availability[$plantIndex]);
-        // }
-        // $scheduleData->bps_availability[] = array(
-        //     'plant_name' => $plant['plant_name'],
-        //     'plant_capacity' => $plant['plant_capacity'],
-        //     'free_from' => $scheduleData->loading_end->copy()->subSeconds(),
-        //     'free_upto' => $plant['free_upto'],
-        //     'location' => $location,
-        // );
+        $plantIndex = $scheduleData->batching_plant['index'];
+        $scheduleData->bps_availability[$plantIndex]['free_upto'] = $scheduleData->loading_start->copy()->addSeconds();
+        if (
+            isset($scheduleData->bps_availability[$plantIndex]['free_from']) &&
+            $scheduleData->bps_availability[$plantIndex]['free_upto'] <= $scheduleData->bps_availability[$plantIndex]['free_from']
+        ) {
+            unset($scheduleData->bps_availability[$plantIndex]);
+        }
+        $scheduleData->bps_availability[] = array(
+            'plant_name' => $plant['plant_name'],
+            'plant_capacity' => $plant['plant_capacity'],
+            'free_from' => $scheduleData->loading_end->copy()->subSeconds(),
+            'free_upto' => $plant['free_upto'],
+            'location' => $location,
+        );
         if (!in_array($plant['plant_name'], $scheduleData->assigned_plants)) {
             $scheduleData->assigned_plants[] = $plant['plant_name'];
         }
@@ -915,172 +833,10 @@ class ScheduleService
             "deviation" => abs(Carbon::parse($order->delivery_date)->diffInMinutes($scheduleData->pouring_start, false)),
         ];
     }
+
+
+
     public function optimizeSchedules(ScheduleData $scheduleData)
-    {
-        DB::transaction(function () use ($scheduleData) {
-
-            try {
-                $scheduleDate = Carbon::parse($scheduleData->schedule_date);
-
-                // 1️⃣ Get all transit mixers for this company
-                $allMixers = DB::table('transit_mixers')
-                    ->join('group_companies', function ($join) use ($scheduleData) {
-                        $join->on('group_companies.id', '=', 'transit_mixers.group_company_id');
-                    })
-                    ->select(
-                        'transit_mixers.id',
-                        'transit_mixers.truck_name',
-                        'transit_mixers.truck_capacity',
-                        'transit_mixers.loading_time',
-                        'group_companies.working_hrs_s',
-                        'group_companies.working_hrs_e'
-                    )
-                    ->where('group_companies.id', $scheduleData->company)
-                    ->where('transit_mixers.status', ConstantHelper::ACTIVE)
-                    ->whereIn('transit_mixers.id', (array) $scheduleData->transit_mixers)
-                    ->get();
-                // 2️⃣ Build mixer availability array
-                // mixer_id => array of ['start' => Carbon, 'end' => Carbon]
-                $mixerAvailability = [];
-
-
-                // Existing schedules
-                $existingSchedules = SelectedOrderSchedule::where("group_company_id", $scheduleData->company)
-                    ->where("user_id", $scheduleData->user_id)
-                    ->where('schedule_date', $scheduleData->schedule_date)
-                    ->get();
-
-                // Mark existing schedules as busy
-                foreach ($existingSchedules as $schedule) {
-                    if ($schedule->transit_mixer) {
-                        $mixer = $allMixers->firstWhere('truck_name', $schedule->transit_mixer);
-                        if ($mixer) {
-                            $mixerAvailability[$mixer->id][$schedule->id] = [
-                                'start' => Carbon::parse($schedule->loading_start),
-                                'end' => Carbon::parse($schedule->return_end),
-                            ];
-                        }
-                    }
-                }
-                foreach ($allMixers as $mixer) {
-                    if (!isset($mixerAvailability[$mixer->id]))
-                        $mixerAvailability[$mixer->id][0] = [
-                            'start' => $scheduleDate->copy()->startOfDay(),
-                            'end' => $scheduleDate->copy()->startOfDay(),
-                        ];
-
-                }
-
-
-                // 3️⃣ Get orders grouped by plant
-                $records = SelectedOrderSchedule::where("group_company_id", $scheduleData->company)
-                    ->where("user_id", $scheduleData->user_id)
-                    ->where('schedule_date', $scheduleData->schedule_date)
-                    ->orderBy('batching_plant')
-                    ->orderBy('loading_start')
-                    ->get()
-                    ->groupBy('batching_plant');
-
-
-
-                // 4️⃣ Optimize each order
-                foreach ($records as $plant => $plantRecords) {
-                    $previous = null;
-
-
-                    foreach ($plantRecords as $row) {
-
-                        $loadingStart = Carbon::parse($row->loading_start);
-                        $loadingEnd = Carbon::parse($row->loading_end);
-                        $pouringStart = Carbon::parse($row->pouring_start);
-                        // dd($row->mixer);
-
-                        // Shift based on previous schedule
-                        if ($previous) {
-                            $prevLoadingEnd = Carbon::parse($previous->loading_end);
-                            $gapInMinutes = $prevLoadingEnd->diffInMinutes($loadingStart, false);
-                            if ($gapInMinutes > 1) {
-                                $interval = $row->order->interval;
-                                if ($gapInMinutes > $interval) {
-                                    $bufferMinutes = $row->loading_time + $row->qc_time + $row->travel_time + $row->insp_time + 5 + $interval;
-                                    $loadingStart = $pouringStart->copy()->subMinutes($bufferMinutes);
-                                } else {
-                                    $loadingStart = $prevLoadingEnd->copy()->addMinute();
-                                }
-                                $loadingEnd = $loadingStart->copy()->addMinutes($row->loading_time);
-                            }
-                        }
-
-                        // QC
-                        $qcStart = $loadingEnd->copy()->addMinute();
-                        $qcEnd = $qcStart->copy()->addMinutes($row->qc_time);
-
-                        // Travel
-                        $travelStart = $qcEnd->copy()->addMinute();
-                        $travelEnd = $travelStart->copy()->addMinutes($row->travel_time);
-
-                        // Inspection
-                        $inspStart = $travelEnd->copy()->addMinute();
-                        $inspEnd = $inspStart->copy()->addMinutes($row->insp_time);
-
-                        // Waiting until pouring
-                        $waitingStart = $inspEnd->copy()->addMinute();
-                        $waitingEnd = $pouringStart->copy()->subMinute();
-                        if ($waitingEnd->lt($waitingStart)) {
-                            $waitingEnd = $waitingStart;
-                        }
-                        $waitingTime = $waitingStart->diffInMinutes($waitingEnd);
-                        $row->loading_start = $loadingStart;
-                        $row->loading_end = $loadingEnd;
-                        $row->qc_start = $qcStart;
-                        $row->qc_end = $qcEnd;
-                        $row->travel_start = $travelStart;
-                        $row->travel_end = $travelEnd;
-                        $row->insp_start = $inspStart;
-                        $row->insp_end = $inspEnd;
-                        $row->waiting_start = $waitingStart;
-                        $row->waiting_end = $waitingEnd;
-                        $row->waiting_time = $waitingTime;
-
-
-
-
-                        // 4️⃣ Assign mixer considering availability and capacity
-                        $row->transit_mixer = $this->assignAvailableMixerFIFO(
-                            $allMixers,
-                            $mixerAvailability,
-                            $loadingStart,
-                            Carbon::parse($row->return_end),
-                            (int) $row->mixer->truck_capacity,
-                            $row->transit_mixer,
-                            $row->id
-                        );
-                        if ($row->transit_mixer == null)
-                            continue;
-
-
-                        // 5️⃣ Save updated values
-
-
-
-
-                        $row->save();
-                        $previous = $row;
-                    }
-                }
-
-            } catch (\Exception $e) {
-                Log::error("Schedule optimization failed: " . $e->getMessage());
-                throw $e; // rollback transaction
-            }
-
-        });
-    }
-
-
-
-
-    public function optimizeSchedulesNew(ScheduleData $scheduleData)
     {
         DB::transaction(function () use ($scheduleData) {
 
@@ -1237,7 +993,7 @@ class ScheduleService
 
 
                         // 4️⃣ Assign mixer considering availability and capacity
-                        $row->transit_mixer = $this->assignAvailableMixerFIFO(
+                        $row->transit_mixer = $this->assignAvailableMixer(
                             $allMixers,
                             $mixerAvailability,
                             $loadingStart,
@@ -1259,17 +1015,9 @@ class ScheduleService
                         $previous = $row;
                     }
                 }
-                $lastTrips = SelectedOrderSchedule::select('order_id', DB::raw('MAX(pouring_end) as last_pour'))
-                    ->groupBy('order_id')
-                    ->get();
-
-                foreach ($lastTrips as $trip) {
-                    SelectedOrder::where('id', $trip->order_id)
-                        ->update(['end_time' => $trip->last_pour]);
-                }
 
             } catch (\Exception $e) {
-                Log::error("Schedule optimization failed: " . $e->getMessage());
+                //Log::error("Schedule optimization failed: " . $e->getMessage());
                 throw $e; // rollback transaction
             }
 
@@ -1279,122 +1027,6 @@ class ScheduleService
     /**
      * Assign a free transit mixer considering availability and capacity
      */
-    protected function assignAvailableMixerFIFO(
-        $allMixers,
-        &$mixerAvailability,
-        Carbon $loadingStart,
-        Carbon $travelEnd,
-        $orderQuantity,
-        $currentMixerName = null,
-        $scheduleId = null
-    ) {
-        // 1) If current mixer is still free, keep it (this avoids churn)
-        if ($currentMixerName) {
-            $current = $allMixers->firstWhere('truck_name', $currentMixerName);
-            if ($current) {
-                $busy = $mixerAvailability[$current->id] ?? [];
-                $isFree = true;
-
-                foreach ($busy as $sid => $iv) {
-                    if ($sid == $scheduleId)
-                        continue;
-                    if ($loadingStart->lt($iv['end']) && $travelEnd->gt($iv['start'])) {
-                        $isFree = false;
-                        break;
-                    }
-                }
-
-                if ($isFree) {
-                    // update interval and return same mixer
-                    $mixerAvailability[$current->id][$scheduleId] = [
-                        'start' => $loadingStart->copy(),
-                        'end' => $travelEnd->copy(),
-                    ];
-                    return $current->truck_name;
-                }
-            }
-        }
-
-        // 2) Build FIFO candidates: all free mixers + their "waiting since" time
-        $candidates = [];
-
-        foreach ($allMixers as $mixer) {
-
-            $busy = $mixerAvailability[$mixer->id] ?? [];
-            $isFree = true;
-
-            // also compute last busy end <= loadingStart (FIFO key)
-            $lastEnd = null;
-
-            foreach ($busy as $sid => $iv) {
-                if ($sid == $scheduleId)
-                    continue;
-
-                $ivStart = $iv['start'] instanceof Carbon ? $iv['start'] : Carbon::parse($iv['start']);
-                $ivEnd = $iv['end'] instanceof Carbon ? $iv['end'] : Carbon::parse($iv['end']);
-
-                // Overlap => not free
-                if ($loadingStart->lt($ivEnd) && $travelEnd->gt($ivStart)) {
-                    $isFree = false;
-                    break;
-                }
-
-                // Track "when it became free" before loadingStart
-                if ($ivEnd->lte($loadingStart)) {
-                    if ($lastEnd === null || $ivEnd->gt($lastEnd))
-                        $lastEnd = $ivEnd->copy();
-                }
-
-                // If interval covers loadingStart, it's not free at required time
-                if ($ivStart->lte($loadingStart) && $ivEnd->gt($loadingStart)) {
-                    $isFree = false;
-                    break;
-                }
-            }
-
-            if (!$isFree)
-                continue;
-
-            // never used before => treat as very early free => highest FIFO priority
-            $waitingSince = $lastEnd ?? Carbon::create(1970, 1, 1, 0, 0, 0);
-
-            $candidates[] = [
-                'id' => $mixer->id,
-                'name' => $mixer->truck_name,
-                'waiting_since' => $waitingSince,
-            ];
-        }
-
-        if (empty($candidates)) {
-            return null;
-        }
-
-        // 3) FIFO pick: earliest waiting_since first, tie-break by name
-        usort($candidates, function ($a, $b) {
-            if ($a['waiting_since']->eq($b['waiting_since'])) {
-                return strcmp((string) $a['name'], (string) $b['name']);
-            }
-            return $a['waiting_since']->lt($b['waiting_since']) ? -1 : 1;
-        });
-
-        $picked = $candidates[0];
-
-        // 4) Update availability map (also remove old mixer interval if changed)
-        if ($currentMixerName && $currentMixerName !== $picked['name']) {
-            $old = $allMixers->firstWhere('truck_name', $currentMixerName);
-            if ($old && isset($mixerAvailability[$old->id][$scheduleId])) {
-                unset($mixerAvailability[$old->id][$scheduleId]);
-            }
-        }
-
-        $mixerAvailability[$picked['id']][$scheduleId] = [
-            'start' => $loadingStart->copy(),
-            'end' => $travelEnd->copy(),
-        ];
-
-        return $picked['name'];
-    }
-
     protected function assignAvailableMixer(
         $allMixers,
         &$mixerAvailability,
@@ -1474,29 +1106,39 @@ class ScheduleService
         //Log::warning("No available transit mixer with enough capacity for {$loadingStart} - {$travelEnd}");
         return null;
     }
-    private function tryNearbySlotWithoutReset($order, ScheduleData &$scheduleData, $location): bool
+    private function tryNearbySlotWithoutReset($order, ScheduleData &$scheduleData, $location, int $trip, int $toleranceMinutes = 10): bool
     {
-        $slots = $scheduleData->truck_busy_slots;
-        $slots = array_values(array_filter($slots, function ($item) use ($scheduleData) {
-            return $item['order_no'] !== $scheduleData->order_no;
-        }));
+        $originalDelivery = $scheduleData->delivery_time->copy();
 
-        $scheduleData->truck_busy_slots = $slots;
+        for ($i = 1; $i <= $toleranceMinutes; $i++) {
 
-        $slots = $scheduleData->plant_busy_slots;
-        $slots = array_values(array_filter($slots, function ($item) use ($scheduleData) {
-            return $item['order_no'] !== $scheduleData->order_no;
-        }));
+            foreach ([$i, -$i] as $offset) {
 
-        $scheduleData->plant_busy_slots = $slots;
+                $candidateTime = $originalDelivery->copy()->addMinutes($offset);
 
+                if (
+                    $candidateTime->lt($scheduleData->shift_start) ||
+                    $candidateTime->gt($scheduleData->shift_end)
+                ) {
+                    continue;
+                }
+
+                $scheduleData->delivery_time = $candidateTime;
+
+                $this->updateSchedule($scheduleData, $order);
+
+                $this->assignResources($order, $scheduleData, $location, $trip);
+
+                if ($this->allResourcesAssigned($scheduleData)) {
+                    return true;
+                }
+            }
+        }
+
+        // revert
+        $scheduleData->delivery_time = $originalDelivery;
         $this->updateSchedule($scheduleData, $order);
 
-        $this->assignResources($order, $scheduleData, $location, 1);
-
-        if ($this->allResourcesAssigned($scheduleData)) {
-            return true;
-        }
         return false;
     }
     private function assignPump($order, ScheduleData &$scheduleData, $location): void
@@ -1525,21 +1167,43 @@ class ScheduleService
         for ($p = 0; $p < $pumpsRequired; $p++) {
 
             // Build group trips: pump#1 => 1,1+N... pump#2 => 2,2+N...
+            $groupTrips = [];
+            for ($i = $p; $i < $totalTrips; $i += $pumpsRequired) {
+                $groupTrips[] = $trips[$i];
+            }
+            if (empty($groupTrips))
+                continue;
 
+            // Sort group by pouring_start to avoid start/end swapping
+            usort($groupTrips, function ($a, $b) {
+                return Carbon::parse($a['pouring_start'])->timestamp <=> Carbon::parse($b['pouring_start'])->timestamp;
+            });
 
-            $first = $trips[0];
-            $last = $trips[count($trips) - 1];
-            $lastIndex = count($trips) - 1;
-
+            $first = $groupTrips[0];
+            $last = $groupTrips[count($groupTrips) - 1];
 
             // Pouring window differs per pump group
-            $groupPourStart = Carbon::parse($trips[$p]['pouring_start']);
-            $groupPourEnd = Carbon::parse($trips[$lastIndex - $p]['pouring_end']);
-            $groupPumpEndTime = Carbon::parse($trips[$lastIndex - $p]['return_end']);
+            $groupPourStart = Carbon::parse($first['pouring_start']);
+            $groupPourEnd = Carbon::parse($last['pouring_end']);
 
-            $groupPumpLoadingTime = Carbon::parse($first['loading_start']);
+            // Midnight rollover guard
+            if ($groupPourEnd->lt($groupPourStart)) {
+                $groupPourEnd->addDay();
+            }
 
+            // Pump end time should be LAST return_end of that group
+            $groupPumpEndTime = Carbon::parse($last['return_end']);
 
+            // Midnight rollover guard
+            if ($pumpsRequired > 1)
+                $groupPumpLoadingTime = Carbon::parse($trips[$totalTrips - 1]['loading_start']);
+            else
+                $groupPumpLoadingTime = Carbon::parse($trips[0]['loading_start']);
+            if ($groupPumpEndTime->lt($groupPumpLoadingTime)) {
+                $groupPumpEndTime->addDay();
+            }
+
+            // Pump sequence (1..pumpsRequired)
             $pumpSeq = $p + 1;
             $preferred = $scheduleData->assigned_pumps; // preference only
             $requirements = [];
@@ -1625,10 +1289,9 @@ class ScheduleService
                 'end' => $returnEnd->copy(),
                 'pump_id' => $pumpId
             ];
+            Log::debug('Slots for order '.$order->order_no, $scheduleData->pump_busy_slots);
+            
 
-
-            $trip = isset($scheduleData->selected_order_pump_schedules[$pumpName]['trip']) ? $scheduleData->selected_order_pump_schedules[$pumpName]['trip'] : 0;
-            $batching_qty = isset($scheduleData->selected_order_pump_schedules[$pumpName]['batching_qty']) ? $scheduleData->selected_order_pump_schedules[$pumpName]['batching_qty'] : 0;
 
             // Waiting differs because pouring differs
 
@@ -1641,8 +1304,8 @@ class ScheduleService
                 'cust_product_id' => $order->customer_product_id ?? null,
 
                 // trips & qty per pump group
-                'trip' => $trip++,
-                'batching_qty' => $batching_qty += $scheduleData->batching_qty,
+                'trip' => count($groupTrips),
+                'batching_qty' => array_sum(array_map(fn($x) => (float) ($x['batching_qty'] ?? 0), $groupTrips)),
 
                 // ✅ SAME for all pumps (from first trip)
                 'qc_time' => (int) $scheduleData->qc_time,
@@ -1720,5 +1383,12 @@ class ScheduleService
 
         return $trips;
     }
+
+
+
+
+
+
+
 
 }

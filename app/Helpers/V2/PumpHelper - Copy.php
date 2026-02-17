@@ -66,37 +66,51 @@ public static function getAvailablePumps(
         $startNeed = $pump_start_time instanceof Carbon ? $pump_start_time : Carbon::parse($pump_start_time);
         $endNeed   = $pump_end_time   instanceof Carbon ? $pump_end_time   : Carbon::parse($pump_end_time);
 
+        // helper: check overlap
         $overlaps = function (Carbon $aStart, Carbon $aEnd, Carbon $bStart, Carbon $bEnd): bool {
+            // overlap if aStart < bEnd AND aEnd > bStart
             return $aStart->lt($bEnd) && $aEnd->gt($bStart);
         };
 
-        $canUse = function ($pump) use ($scheduleData,$reqCap,$reqType,$location,$startNeed,$endNeed,&$slots,$overlaps) {
-            if (!isset($pump['pump_id'],$pump['pump_name'],$pump['pump_capacity'],$pump['pump_type'],$pump['free_from'],$pump['free_upto'])) {
+        // helper: can this pump be used?
+        $canUsePump = function ($pump) use (
+            $scheduleData, $reqCap, $reqType, $location, $startNeed, $endNeed, &$slots, $overlaps
+        ): array {
+            if (!isset($pump['pump_id'], $pump['pump_name'], $pump['pump_capacity'], $pump['pump_type'], $pump['free_from'], $pump['free_upto'])) {
                 return [false, null, null];
             }
 
+            // required match
             if ($reqCap !== null && (float)$pump['pump_capacity'] !== (float)$reqCap) return [false, null, null];
             if ($reqType !== null && (string)$pump['pump_type'] !== (string)$reqType) return [false, null, null];
 
+            // location check
             if (!empty($pump['location']) && $location && $pump['location'] !== $location) return [false, null, null];
 
             $installTime = (int)($pump['installation_time'] ?? 10);
-            $totalTime = $installTime + (int)$scheduleData->qc_time + (int)$scheduleData->insp_time + (int)$scheduleData->travel_time + 4;
+
+            // Busy start is BEFORE pump_start_time (QC/Travel/Insp/Install etc.)
+            $totalTime = $installTime
+                + (int)$scheduleData->qc_time
+                + (int)$scheduleData->insp_time
+                + (int)$scheduleData->travel_time
+                + 4;
 
             $busyStart = $startNeed->copy()->subMinutes($totalTime);
-            $busyEnd   = $endNeed->copy();
+            $busyEnd   = $endNeed->copy(); // until return_end of that pump group/order
 
+            // availability window check (pump must cover [busyStart..busyEnd])
             $freeFrom = Carbon::parse($pump['free_from']);
             $freeUpto = Carbon::parse($pump['free_upto']);
 
-            // must cover whole busy window
-            if ($freeFrom->gt($busyStart) || $freeUpto->lt($busyEnd)) {
+            if ($freeFrom->gt($busyEnd) || $freeUpto->lt($busyStart)) {
                 return [false, $busyStart, $busyEnd];
             }
 
-            // slot overlap
+            // busy slots overlap check
             foreach ($slots as $slot) {
                 if ((int)$slot['pump_id'] !== (int)$pump['pump_id']) continue;
+
                 $slotStart = $slot['start'] instanceof Carbon ? $slot['start'] : Carbon::parse($slot['start']);
                 $slotEnd   = $slot['end']   instanceof Carbon ? $slot['end']   : Carbon::parse($slot['end']);
 
@@ -108,16 +122,17 @@ public static function getAvailablePumps(
             return [true, $busyStart, $busyEnd];
         };
 
-        $pumpsCol = collect($pumps);
+        $pumps = collect($pumps);
 
-        // ✅ 1) Prefer already-used pumps (reuse if free)
+        // 1) ✅ Prefer already assigned pumps (reuse if free)
         if (!empty($assinedPumps)) {
-            foreach ($assinedPumps as $preferredName) {
-                $pump = $pumpsCol->firstWhere('pump_name', $preferredName);
+            foreach ($assinedPumps as $preferredPumpName) {
+                $pump = $pumps->firstWhere('pump_name', $preferredPumpName);
                 if (!$pump) continue;
 
-                [$ok, $busyStart, $busyEnd] = $canUse($pump);
+                [$ok, $busyStart, $busyEnd] = $canUsePump($pump);
                 if ($ok) {
+                    // add slot ONLY after selection
                     $slots[] = [
                         'pump_id' => (int)$pump['pump_id'],
                         'start'   => $busyStart->copy(),
@@ -125,20 +140,20 @@ public static function getAvailablePumps(
                         'order_no'=> $order->order_no,
                     ];
 
-                    Log::info("Picked preferred pump {$pump['pump_name']} for {$order->order_no}", [
+                    Log::info("Picked preferred pump {$pump['pump_name']} for order {$order->order_no}", [
                         'busy_start' => $busyStart->toDateTimeString(),
                         'busy_end'   => $busyEnd->toDateTimeString(),
                     ]);
 
-                    return ['pump' => $pump, 'index' => $pumpsCol->search(fn($x)=> (int)$x['pump_id']==(int)$pump['pump_id'])];
+                    return ['pump' => $pump, 'index' => $pumps->search(fn($x) => $x['pump_id'] == $pump['pump_id'])];
                 }
             }
         }
 
-        // ✅ 2) FIFO pick from all candidates
+        // 2) Otherwise pick any available pump (FIFO style optional)
         $candidates = [];
-        foreach ($pumpsCol as $idx => $pump) {
-            [$ok, $busyStart, $busyEnd] = $canUse($pump);
+        foreach ($pumps as $idx => $pump) {
+            [$ok, $busyStart, $busyEnd] = $canUsePump($pump);
             if (!$ok) continue;
 
             $freeFrom = Carbon::parse($pump['free_from']);
@@ -146,26 +161,26 @@ public static function getAvailablePumps(
 
             $candidates[] = [
                 'pump' => $pump,
-                'index'=> $idx,
-                'free_from_ts'=> $freeFrom->timestamp,
-                'idle_gap'=> $idleGap,
-                'busyStart'=> $busyStart,
-                'busyEnd'=> $busyEnd,
+                'index' => $idx,
+                'score_free_from' => $freeFrom->timestamp,
+                'score_idle_gap' => $idleGap,
+                'busyStart' => $busyStart,
+                'busyEnd' => $busyEnd,
             ];
         }
 
         if (empty($candidates)) return null;
 
-        usort($candidates, function($a,$b){
-            if ($a['free_from_ts'] !== $b['free_from_ts']) return $a['free_from_ts'] <=> $b['free_from_ts'];
-            return $a['idle_gap'] <=> $b['idle_gap'];
+        usort($candidates, function ($a, $b) {
+            if ($a['score_free_from'] !== $b['score_free_from']) return $a['score_free_from'] <=> $b['score_free_from'];
+            return $a['score_idle_gap'] <=> $b['score_idle_gap'];
         });
 
         $winner = $candidates[0]['pump'];
         $busyStart = $candidates[0]['busyStart'];
         $busyEnd   = $candidates[0]['busyEnd'];
 
-        // ✅ add slot ONLY for winner
+        // add slot ONLY after selection
         $slots[] = [
             'pump_id' => (int)$winner['pump_id'],
             'start'   => $busyStart->copy(),
@@ -173,15 +188,18 @@ public static function getAvailablePumps(
             'order_no'=> $order->order_no,
         ];
 
-        Log::info("Picked pump {$winner['pump_name']} for {$order->order_no}", [
+        Log::info("Picked pump {$winner['pump_name']} for order {$order->order_no}", [
             'busy_start' => $busyStart->toDateTimeString(),
             'busy_end'   => $busyEnd->toDateTimeString(),
         ]);
 
-        return ['pump'=>$winner,'index'=>$candidates[0]['index']];
+        return [
+            'pump'  => $winner,
+            'index' => $candidates[0]['index']
+        ];
 
     } catch (\Exception $e) {
-        Log::error("getAvailablePumps error: ".$e->getMessage());
+        Log::error("getAvailablePumps error: " . $e->getMessage());
         return null;
     }
 }

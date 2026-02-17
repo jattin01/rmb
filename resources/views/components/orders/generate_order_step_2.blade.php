@@ -84,10 +84,10 @@
 													<th>Customer</th>
 													<th>Delivery Date</th>
 													<th>Time</th>
-													<th>Interval (Mins)</th>
+													<th>Flexible Interval (Mins)</th>
 													<th>Priority</th>
-													<th>Flexibility</th>
-													<th>Interval Deviation (%)</th>
+													<th class="d-none">Flexibility</th> 
+													<th class="d-none">Interval Deviation (%)</th>
 													<th>Pouring Time</th>
 													<th style="display: none;">Travel To Site (Mins)</th>
 													<th style="display: none;">Return to Plant (Mins)</th>
@@ -147,14 +147,14 @@
 															id="priority-order-{{$order -> id}}"
 															onchange="onChangeEvent(this.value, 'priority-order-', {{$order -> id}}, 'priority');" />
 													</td>
-													<td>
+													<td class="d-none">
 														<input name="orders[{{$orderKey}}][flexibility]"
 															style="width: 50px; text-align: right;" type="number"
 															value="{{$order -> flexibility}}" data-arraykey="{{$orderKey}}"
 															id="flexibility-order-{{$order -> id}}"
 															onchange="onChangeEvent(this.value, 'flexibility-order-', {{$order -> id}}, 'flexibility');" />
 													</td>
-													<td>
+													<td class="d-none">
 														<input name="orders[{{$orderKey}}][interval_deviation]"
 															style="width: 50px; text-align: right;" type="number"
 															value="{{$order -> interval_deviation}}"
@@ -214,12 +214,12 @@
 								</div>
 
 								<div style="margin-left:30%; margin-right:25%; margin-top:2%" class="col-md-5">
-									<div class = "row">
+									<div class = "d-none row">
 										<div class="col mt-3">
 											<label>Interval Deviation</label>
 										</div>
 
-										<div class="col">
+										<div class="d-none col">
 											<div class="form-group position-relative">
 												<input type="number" name = "interval_deviation" class="form-control search-byinpt padding-right"
 													id = "interval_deviation_input" type ="number" min = "0" max = "500" value="100"
