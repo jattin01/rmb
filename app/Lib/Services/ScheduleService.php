@@ -186,8 +186,10 @@ class ScheduleService
             ]);
             $this->generateSchedule($scheduleData);
             $this->optimizeSchedules($scheduleData);
+            $this->reassignMixersAfterStore($scheduleData);
 
-           
+
+
 
         } catch (\Exception $e) {
             Log::error('Schedule Initialization Error: ' . $e->getMessage());
@@ -220,6 +222,9 @@ class ScheduleService
                 $this->processOrder($order, $orderSchedule, $scheduleData, $orderKey);
                 if (isset($orderSchedule->lastResponse) && $orderSchedule->lastResponse['last_trip'] > $orderSchedule->trip) {
                     $orderSchedule = clone $orderSchedule->lastResponse['data'];
+                }
+                if (empty($orderSchedule->schedules)) {
+                    continue;
                 }
                 $this->storeSchedules($order, $orderSchedule);
                 $scheduleData->tms_availability = $orderSchedule->tms_availability;
@@ -274,11 +279,25 @@ class ScheduleService
             $this->processTrips($order, $scheduleData, $generatedScheduleData, $location, $orderKey);
             if ($scheduleData->is_completed) {
 
-                if ($order->pump) {
-                    $this->assignPump($order, $scheduleData, $location);
+                if ($order->pump && (int) $order->pump_qty > 0) {
+
+                    $ok = $this->assignPump($order, $scheduleData, $location);
+
+                    // ✅ If pump required but not assigned => don't schedule this order
+                    if (!$ok) {
+                        $scheduleData->is_completed = false;
+                        $scheduleData->schedules = [];
+                        $scheduleData->selected_order_pump_schedules = [];
+                        $scheduleData->assigned_pump = [];
+                        $scheduleData->pouring_pump = null;
+                        // do NOT break; let it try next location if available
+                        continue;
+                    }
                 }
+
                 break;
             }
+
         }
     }
     private function initializeVariables(ScheduleData &$scheduleData)
@@ -686,7 +705,7 @@ class ScheduleService
         if (isset($scheduleData->transit_mixer['data']['truck_name'])) {
             $scheduleData->truck_busy_slots[] = [
                 'start' => $scheduleData->loading_start->copy(),
-                'end' => $scheduleData->return_end->copy(),
+                'end' => $scheduleData->return_end->copy()->subSeconds(),
                 'truck_id' => $scheduleData->transit_mixer['data']['truck_name'],
                 'order_no' => $scheduleData->order_no,
                 'cap' => $scheduleData->transit_mixer['data']['truck_capacity'],
@@ -920,59 +939,7 @@ class ScheduleService
         DB::transaction(function () use ($scheduleData) {
 
             try {
-                $scheduleDate = Carbon::parse($scheduleData->schedule_date);
 
-                // 1️⃣ Get all transit mixers for this company
-                $allMixers = DB::table('transit_mixers')
-                    ->join('group_companies', function ($join) use ($scheduleData) {
-                        $join->on('group_companies.id', '=', 'transit_mixers.group_company_id');
-                    })
-                    ->select(
-                        'transit_mixers.id',
-                        'transit_mixers.truck_name',
-                        'transit_mixers.truck_capacity',
-                        'transit_mixers.loading_time',
-                        'group_companies.working_hrs_s',
-                        'group_companies.working_hrs_e'
-                    )
-                    ->where('group_companies.id', $scheduleData->company)
-                    ->where('transit_mixers.status', ConstantHelper::ACTIVE)
-                    ->whereIn('transit_mixers.id', (array) $scheduleData->transit_mixers)
-                    ->get();
-                // 2️⃣ Build mixer availability array
-                // mixer_id => array of ['start' => Carbon, 'end' => Carbon]
-                $mixerAvailability = [];
-
-
-                // Existing schedules
-                $existingSchedules = SelectedOrderSchedule::where("group_company_id", $scheduleData->company)
-                    ->where("user_id", $scheduleData->user_id)
-                    ->where('schedule_date', $scheduleData->schedule_date)
-                    ->get();
-
-                // Mark existing schedules as busy
-                foreach ($existingSchedules as $schedule) {
-                    if ($schedule->transit_mixer) {
-                        $mixer = $allMixers->firstWhere('truck_name', $schedule->transit_mixer);
-                        if ($mixer) {
-                            $mixerAvailability[$mixer->id][$schedule->id] = [
-                                'start' => Carbon::parse($schedule->loading_start),
-                                'end' => Carbon::parse($schedule->return_end),
-                            ];
-                        }
-                    }
-                }
-                foreach ($allMixers as $mixer) {
-                    if (!isset($mixerAvailability[$mixer->id]))
-                        $mixerAvailability[$mixer->id][0] = [
-                            'start' => $scheduleDate->copy()->startOfDay(),
-                            'end' => $scheduleDate->copy()->startOfDay(),
-                        ];
-
-                }
-
-
-                // 3️⃣ Get orders grouped by plant
                 $records = SelectedOrderSchedule::where("group_company_id", $scheduleData->company)
                     ->where("user_id", $scheduleData->user_id)
                     ->where('schedule_date', $scheduleData->schedule_date)
@@ -1041,29 +1008,6 @@ class ScheduleService
                         $row->waiting_start = $waitingStart;
                         $row->waiting_end = $waitingEnd;
                         $row->waiting_time = $waitingTime;
-
-
-
-
-                        // 4️⃣ Assign mixer considering availability and capacity
-                        $row->transit_mixer = $this->assignAvailableMixerFIFO(
-                            $allMixers,
-                            $mixerAvailability,
-                            $loadingStart,
-                            Carbon::parse($row->return_end),
-                            (int) $row->mixer->truck_capacity,
-                            $row->transit_mixer,
-                            $row->id
-                        );
-                        if ($row->transit_mixer == null)
-                            continue;
-
-
-                        // 5️⃣ Save updated values
-
-
-
-
                         $row->save();
                         $previous = $row;
                     }
@@ -1499,17 +1443,17 @@ class ScheduleService
         }
         return false;
     }
-    private function assignPump($order, ScheduleData &$scheduleData, $location): void
+    private function assignPump($order, ScheduleData &$scheduleData, $location): bool
     {
         // No pump requirement
         if (!$order->pump || (int) $order->pump_qty <= 0) {
-            return;
+            return true;
         }
         $trips = $this->sortTrips($scheduleData);
 
 
         if (empty($trips)) {
-            return;
+            return false;
         }
 
         // Reset per-order pump state
@@ -1696,6 +1640,14 @@ class ScheduleService
                 $scheduleData->assigned_pumps[] = $pumpName;
             }
         }
+        $assignedPumpCount = count($scheduleData->selected_order_pump_schedules);
+
+        if ($assignedPumpCount === 0) {
+            return false;
+        }
+
+        return true;
+
     }
     public function sortTrips(ScheduleData $scheduleData): array
     {
@@ -1720,5 +1672,111 @@ class ScheduleService
 
         return $trips;
     }
+
+    public function reassignMixersAfterStore(ScheduleData $scheduleData): void
+    {
+        DB::transaction(function () use ($scheduleData) {
+
+            // 1) Load all mixers (only the mixers selected for this run)
+            $allMixers = DB::table('transit_mixers')
+                ->select('id', 'truck_name', 'truck_capacity')
+                ->where('group_company_id', $scheduleData->company)
+                ->where('status', ConstantHelper::ACTIVE)
+                ->whereIn('id', (array) $scheduleData->transit_mixers)
+                ->orderBy('truck_name')
+                ->get();
+
+            // 2) Load all schedule rows sorted by loading_start (forget previous assignment)
+            $rows = SelectedOrderSchedule::where("group_company_id", $scheduleData->company)
+                ->where("user_id", $scheduleData->user_id)
+                ->where("schedule_date", $scheduleData->schedule_date)
+                ->orderBy('loading_start', 'asc')
+                ->get();
+
+            if ($rows->isEmpty() || $allMixers->isEmpty()) {
+                return;
+            }
+
+            // 3) Build truck availability map (forget previous pre assignment)
+            // truck_name => last_free_time (we use return_end of last assigned schedule)
+            $lastFreeAt = [];
+            foreach ($allMixers as $m) {
+                $lastFreeAt[$m->truck_name] = null; // no history
+            }
+
+            // truck_name => list of busy intervals (optional, but safest)
+            $busyIntervals = [];
+            foreach ($allMixers as $m) {
+                $busyIntervals[$m->truck_name] = [];
+            }
+
+            // // 4) Reset all transit_mixer assignments (optional but matches your requirement)
+            // //    You can comment this if you only want to overwrite row-by-row.
+            // SelectedOrderSchedule::where("group_company_id", $scheduleData->company)
+            //     ->where("user_id", $scheduleData->user_id)
+            //     ->where("schedule_date", $scheduleData->schedule_date)
+            //     ->update(['transit_mixer' => null]);
+
+            // 5) Assign one-by-one in time order
+            foreach ($rows as $row) {
+
+                $ls = Carbon::parse($row->loading_start);
+                $re = Carbon::parse($row->return_end);
+
+                $bestTruck = null;
+                $bestGap = null;
+
+                foreach ($allMixers as $mixer) {
+                    $truckName = $mixer->truck_name;
+
+                    // A) Must not overlap existing busy intervals
+                    $overlap = false;
+                    foreach ($busyIntervals[$truckName] as $iv) {
+                        if ($ls->lt($iv['end']) && $re->gt($iv['start'])) {
+                            $overlap = true;
+                            break;
+                        }
+                    }
+                    if ($overlap)
+                        continue;
+
+                    // B) Strict FIFO gap = loading_start - lastFreeAt
+                    $last = $lastFreeAt[$truckName]; // Carbon|null
+                    $gap = $last ? $last->diffInMinutes($ls) : 0;
+
+                    // If last free time is after loading_start, then not free yet
+                    if ($last && $last->gt($ls)) {
+                        continue;
+                    }
+
+                    // Pick largest waiting gap (FIFO)
+                    if (
+                        $bestTruck === null ||
+                        $gap > $bestGap ||
+                        ($gap === $bestGap && strcmp((string) $truckName, (string) $bestTruck) < 0)
+                    ) {
+                        $bestTruck = $truckName;
+                        $bestGap = $gap;
+                    }
+                }
+
+                // If no truck found, keep null (or handle fallback)
+                if (!$bestTruck) {
+                    continue;
+                }
+
+                // 6) Assign + update maps
+                $row->transit_mixer = $bestTruck;
+                $row->save();
+
+                $busyIntervals[$bestTruck][] = [
+                    'start' => $ls->copy(),
+                    'end' => $re->copy(),
+                ];
+                $lastFreeAt[$bestTruck] = $re->copy();
+            }
+        });
+    }
+
 
 }
