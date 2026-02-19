@@ -15,10 +15,11 @@ class TransitMixerHelper
 
         $tms = TransitMixer::join("group_companies", function ($join) {
             $join->on("group_companies.id", "=", "transit_mixers.group_company_id");
-        })->select("truck_name", "truck_capacity", "loading_time", "working_hrs_s", "working_hrs_e")
+        })->select('transit_mixers.id',"truck_name", "truck_capacity", "loading_time", "working_hrs_s", "working_hrs_e")
             ->where("group_companies.id", $company_id)
             ->where("transit_mixers.status", ConstantHelper::ACTIVE)
             ->whereIn("transit_mixers.id", $transit_mixer_ids)
+            ->orderBy('transit_mixers.truck_capacity','desc')
             ->get();
 
         foreach ($tms as $tm) {

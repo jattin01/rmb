@@ -126,7 +126,7 @@ class BatchingPlantHelper
         // overlap helper
         $overlaps = function (Carbon $aStart, Carbon $aEnd, Carbon $bStart, Carbon $bEnd): bool {
             // overlap if aStart < bEnd AND aEnd > bStart
-            return $aStart->lt($bEnd) && $aEnd->gt($bStart);
+            return $aStart->lte($bEnd) && $aEnd->gte($bStart);
         };
 
         $canUsePlant = function ($plant) use ($location, $startNeed, $endNeed, &$slots, $overlaps) {
@@ -175,14 +175,6 @@ class BatchingPlantHelper
                 [$ok, $freeFrom, $freeUpto] = $canUsePlant($plant);
                 if ($ok) {
                     // add slot AFTER selection
-                    $slots[] = [
-                        'plant_name' => $plant['plant_name'],
-                        'start' => $startNeed->copy(),
-                        'end' => $endNeed->copy(),
-                        'order_no' => $orderNo,
-                        'trip' => $trip,
-                    ];
-
                     return [
                         'data' => $plant,
                         'index' => $plants->search(fn($x) => ($x['plant_name'] ?? null) === $plant['plant_name']),
@@ -229,14 +221,8 @@ class BatchingPlantHelper
 
         $winner = $candidates[0]['data'];
 
-        // add slot AFTER selection
-        $slots[] = [
-            'plant_name' => $winner['plant_name'],
-            'start' => $startNeed->copy(),
-            'end' => $endNeed->copy(),
-            'order_no' => $orderNo,
-            'trip' => $trip,
-        ];
+     
+
 
         return [
             'data' => $winner,

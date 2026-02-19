@@ -212,7 +212,7 @@
 														@php
 															$slotTime = isset($resData['slot']) ? $resData['slot']['start_time'] : '12 AM';
 															
-															if($slotTime == '05 AM') {
+															if($slotTime == '02 AM') {
 																$slotTimeFlag = !($slotTimeFlag);
 															}
 

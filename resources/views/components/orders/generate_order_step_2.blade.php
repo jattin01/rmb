@@ -214,8 +214,8 @@
 								</div>
 
 								<div style="margin-left:30%; margin-right:25%; margin-top:2%" class="col-md-5">
-									<div class = "d-none row">
-										<div class="col mt-3">
+									<div class = "row">
+										<div class="d-none col mt-3">
 											<label>Interval Deviation</label>
 										</div>
 
