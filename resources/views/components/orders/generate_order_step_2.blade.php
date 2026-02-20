@@ -84,9 +84,9 @@
 													<th>Customer</th>
 													<th>Delivery Date</th>
 													<th>Time</th>
-													<th>Flexible Interval (Mins)</th>
+													<th>Interval (Mins)</th>
 													<th>Priority</th>
-													<th class="d-none">Flexibility</th> 
+													<th>Flexibility</th> 
 													<th class="d-none">Interval Deviation (%)</th>
 													<th>Pouring Time</th>
 													<th style="display: none;">Travel To Site (Mins)</th>
@@ -147,7 +147,7 @@
 															id="priority-order-{{$order -> id}}"
 															onchange="onChangeEvent(this.value, 'priority-order-', {{$order -> id}}, 'priority');" />
 													</td>
-													<td class="d-none">
+													<td>
 														<input name="orders[{{$orderKey}}][flexibility]"
 															style="width: 50px; text-align: right;" type="number"
 															value="{{$order -> flexibility}}" data-arraykey="{{$orderKey}}"

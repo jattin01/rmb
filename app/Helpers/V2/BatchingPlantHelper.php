@@ -108,17 +108,18 @@ class BatchingPlantHelper
         array &$slots = []   // ✅ pass-by-ref slots
     ) {
         // Restriction window
-        if (isset($restriction_start) && isset($restriction_end)) {
-            $rs = Carbon::parse($restriction_start);
-            $re = Carbon::parse($restriction_end);
-            $ls = Carbon::parse($loading_start);
-            $le = Carbon::parse($loading_end);
+        // if (isset($restriction_start) && isset($restriction_end)) {
+        //     dd($restriction_start,$restriction_end);
+        //     $rs = Carbon::parse($restriction_start);
+        //     $re = Carbon::parse($restriction_end);
+        //     $ls = Carbon::parse($loading_start);
+        //     $le = Carbon::parse($loading_end);
 
-            // if ANY part falls in restriction
-            if ($ls->between($rs, $re) || $le->between($rs, $re) || ($ls->lte($rs) && $le->gte($re))) {
-                return null;
-            }
-        }
+        //     // if ANY part falls in restriction
+        //     if ($ls->between($rs, $re) || $le->between($rs, $re) || ($ls->lte($rs) && $le->gte($re))) {
+        //         return null;
+        //     }
+        // }
 
         $startNeed = Carbon::parse($loading_start);
         $endNeed = Carbon::parse($loading_end);
