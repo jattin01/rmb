@@ -193,7 +193,7 @@ class ScheduleService
 
 
         } catch (\Exception $e) {
-            Log::error('Schedule Initialization Error: ' . $e->getMessage());
+            Log::error('Schedule Initialization Error: ' . $e->getTraceAsString());
         }
     }
     private function clearPreviousSchedules($company, $user_id, $shift_start, $shift_end): void
@@ -1665,10 +1665,8 @@ class ScheduleService
     {
         DB::transaction(function () use ($scheduleData) {
 
-            // 1) Load all mixers (only the mixers selected for this run)
             $allMixers = $scheduleData->tms_availability;
 
-            // 2) Load all schedule rows sorted by loading_start (forget previous assignment)
             $rows = SelectedOrderSchedule::where("group_company_id", $scheduleData->company)
                 ->where("user_id", $scheduleData->user_id)
                 ->where("schedule_date", $scheduleData->schedule_date)
@@ -1679,100 +1677,91 @@ class ScheduleService
                 return;
             }
 
-            // 3) Build truck availability map (forget previous pre assignment)
-            // truck_name => last_free_time (we use return_end of last assigned schedule)
-            $lastFreeAt = [];
-            foreach ($allMixers as $m) {
-                $lastFreeAt[$m['truck_name']] = null; // no history
-            }
+            // 1) Group rows by batching_qty
+            $rowsByQty = $rows->groupBy('batching_qty');
 
-            // truck_name => list of busy intervals (optional, but safest)
+            // 2) Build truck maps
+            $lastFreeAt = [];
             $busyIntervals = [];
             foreach ($allMixers as $m) {
+                $lastFreeAt[$m['truck_name']] = null;
                 $busyIntervals[$m['truck_name']] = [];
             }
 
-            foreach ($rows as $row) {
+            // 3) Iterate over each batching_qty group separately
+            foreach ($rowsByQty as $batchingQty => $groupRows) {
 
-                $ls = Carbon::parse($row->loading_start);
-                $re = Carbon::parse($row->return_end);
+                // Sort group by loading_start (FIFO)
+                $groupRows = $groupRows->sortBy('loading_start');
 
-                $bestTruck = null;
-                $bestGap = null;
+                foreach ($groupRows as $row) {
+                    $ls = Carbon::parse($row->loading_start);
+                    $re = Carbon::parse($row->return_end);
 
-                foreach ($allMixers as $mixer) {
-                    $truckName = $mixer['truck_name'];
-                    $capacity = $mixer['truck_capacity'];
+                    $bestTruck = null;
+                    $bestGap = null;
 
-                    // A) Must not overlap existing busy intervals
-                    $overlap = false;
-                    foreach ($busyIntervals[$truckName] as $iv) {
-                        if ($ls->lt($iv['end']) && $re->gt($iv['start'])) {
-                            $overlap = true;
-                            break;
+                    foreach ($allMixers as $mixer) {
+                        $truckName = $mixer['truck_name'];
+                        $capacity = $mixer['truck_capacity'];
+
+                        // Only consider trucks with matching capacity
+                        if ($capacity != $batchingQty) {
+                            continue;
+                        }
+
+                        // Check for overlapping busy intervals
+                        $overlap = false;
+                        foreach ($busyIntervals[$truckName] as $iv) {
+                            if ($ls->lt($iv['end']) && $re->gt($iv['start'])) {
+                                $overlap = true;
+                                break;
+                            }
+                        }
+                        if ($overlap)
+                            continue;
+
+                        // FIFO gap
+                        $last = $lastFreeAt[$truckName];
+                        $gap = $last ? $last->diffInMinutes($ls) : 0;
+
+                        if ($last && $last->gt($ls))
+                            continue;
+
+                        if ($bestTruck === null || $gap > $bestGap || ($gap === $bestGap && strcmp((string) $truckName, (string) $bestTruck) < 0)) {
+                            $bestTruck = $truckName;
+                            $bestGap = $gap;
                         }
                     }
-                    if ($overlap)
-                        continue;
 
-                    // B) Strict FIFO gap = loading_start - lastFreeAt
-                    $last = $lastFreeAt[$truckName]; // Carbon|null
-                    $gap = $last ? $last->diffInMinutes($ls) : 0;
+                    if (!$bestTruck) {
+                        // Keep original truck and recalc times
+                        $bestTruck = $row->transit_mixer;
+                        $buffer = $row->loading_time + $row->qc_time + $row->travel_time + $row->insp_time + 4;
+                        $row->loading_start = Carbon::parse($row->pouring_start)->copy()->subMinutes($buffer);
+                        $row->loading_end = Carbon::parse($row->loading_start)->copy()->addMinutes($row->loading_time);
+                        $row->qc_start = Carbon::parse($row->loading_end)->copy()->addMinute();
+                        $row->qc_end = Carbon::parse($row->qc_start)->copy()->addMinutes($row->qc_time);
+                        $row->travel_start = Carbon::parse($row->qc_end)->copy()->addMinute();
+                        $row->travel_end = Carbon::parse($row->travel_start)->copy()->addMinutes($row->travel_time);
+                        $row->insp_start = Carbon::parse($row->travel_end)->copy()->addMinute();
+                        $row->insp_end = Carbon::parse($row->insp_start)->copy()->addMinutes($row->insp_time);
+                        $row->waiting_start = Carbon::parse($row->insp_end)->copy()->addMinute();
+                        $row->waiting_end = Carbon::parse($row->pouring_start)->copy()->subMinute();
+                        $row->waiting_time = $row->waiting_start->diffInMinutes($row->waiting_end);
+                        $row->save();
 
-                    // If last free time is after loading_start, then not free yet
-                    if ($last && $last->gt($ls)) {
+                        $busyIntervals[$bestTruck][] = ['start' => $ls->copy(), 'end' => $re->copy()];
+                        $lastFreeAt[$bestTruck] = $re->copy();
                         continue;
                     }
 
-                    // Pick largest waiting gap (FIFO)
-                    if (
-                        $bestTruck === null ||
-                        $gap > $bestGap ||
-                        ($gap === $bestGap && strcmp((string) $truckName, (string) $bestTruck) < 0)
-                    ) {
-
-                        $bestTruck = $truckName;
-                        $bestGap = $gap;
-                    }
-                }
-
-                // If no truck found, keep null (or handle fallback)
-                if (!$bestTruck) {
-                    $bestTruck = $row->transit_mixer; // keep original (may be null)
-                    $buffer = $row->loading_time + $row->qc_time + $row->travel_time + $row->insp_time + 4;
-                    $row->loading_start = Carbon::parse($row->pouring_start)->copy()->subMinutes($buffer);
-                    $row->loading_end = Carbon::parse($row->loading_start)->copy()->addMinutes($row->loading_time);
-                    $row->qc_start = Carbon::parse($row->loading_end)->copy()->addMinute();
-                    $row->qc_end = Carbon::parse($row->qc_start)->copy()->addMinutes($row->qc_time);
-                    $row->travel_start = Carbon::parse($row->qc_end)->copy()->addMinute();
-                    $row->travel_end = Carbon::parse($row->travel_start)->copy()->addMinutes($row->travel_time);
-                    $row->insp_start = Carbon::parse($row->travel_end)->copy()->addMinute();
-                    $row->insp_end = Carbon::parse($row->insp_start)->copy()->addMinutes($row->insp_time);
-                    $row->waiting_start = Carbon::parse($row->insp_end)->copy()->addMinute();
-                    $row->waiting_end = Carbon::parse($row->pouring_start)->copy()->subMinute();
-                    $row->waiting_time = $row->waiting_start->diffInMinutes($row->waiting_end);
+                    $row->transit_mixer = $bestTruck;
                     $row->save();
-                    $busyIntervals[$bestTruck][] = [
-                        'start' => $ls->copy(),
-                        'end' => $re->copy(),
-                    ];
+
+                    $busyIntervals[$bestTruck][] = ['start' => $ls->copy(), 'end' => $re->copy()];
                     $lastFreeAt[$bestTruck] = $re->copy();
-                    continue;
-
                 }
-                // if( (int) $capacity < (int) $row->batching_qty){
-                //     continue;
-                //  }
-
-                // 6) Assign + update maps
-                $row->transit_mixer = $bestTruck;
-                $row->save();
-
-                $busyIntervals[$bestTruck][] = [
-                    'start' => $ls->copy(),
-                    'end' => $re->copy(),
-                ];
-                $lastFreeAt[$bestTruck] = $re->copy();
             }
         });
     }
