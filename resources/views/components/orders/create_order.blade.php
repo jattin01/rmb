@@ -566,7 +566,7 @@
         </div>
     </section>
 
-
+@section('scripts')
     <script>
         $(document).ready(function() {
             $('#customers_dropdown').select2({
@@ -888,4 +888,27 @@
 
         }
     </script>
+     @if (session('success'))
+            <script>
+                toast('success', @json(session('success')));
+            </script>
+        @endif
+        @if (session('warning'))
+            <script>
+                toast('warning', @json(session('warning')));
+            </script>
+        @endif
+        @if (session('error'))
+            <script>
+                toast('error', @json(session('error')));
+            </script>
+        @endif
+        @if ($errors->any())
+            <script>
+                @foreach ($errors->all() as $error)
+                    toast('error', @json($error));
+                @endforeach
+            </script>
+        @endif
+        @endsection
 @endsection

@@ -34,4 +34,7 @@ class SelectedOrderPumpSchedule extends Model
             });
         }   
     }
+    public function pump(){
+        return $this->belongsTo(Pump::class,'pump_name','pump');
+    }
 }
