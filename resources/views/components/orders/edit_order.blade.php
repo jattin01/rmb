@@ -833,134 +833,134 @@
         </div>
     </section>
 
+    @section('scripts')
+        <script>
+            let siteApprovalFiles = [];
+            let confirmationApprovalFiles = [];
 
-    <script>
-        let siteApprovalFiles = [];
-        let confirmationApprovalFiles = [];
-
-        $(document).ready(function() {
-            $('#customers_dropdown').select2({
-                placeholder: 'Select Customer'
+            $(document).ready(function() {
+                $('#customers_dropdown').select2({
+                    placeholder: 'Select Customer'
+                });
+                $('#projects_dropdown').select2({
+                    placeholder: 'Select Project'
+                });
+                $('#projects_sites_dropdown').select2({
+                    placeholder: 'Select Site'
+                });
+                $('#mix_codes_dropdown').select2({
+                    placeholder: 'Select Mix'
+                });
+                $('#struct_ref_dropdown').select2({
+                    placeholder: 'Select Structure'
+                });
+                $('.temp_dropdown').select2({
+                    placeholder: 'Select Temperature'
+                });
+                $('.pump_type_dropdown').select2({
+                    placeholder: 'Select Type'
+                });
+                $('.pump_size_dropdown').select2({
+                    placeholder: 'Select Size'
+                });
             });
-            $('#projects_dropdown').select2({
-                placeholder: 'Select Project'
-            });
-            $('#projects_sites_dropdown').select2({
-                placeholder: 'Select Site'
-            });
-            $('#mix_codes_dropdown').select2({
-                placeholder: 'Select Mix'
-            });
-            $('#struct_ref_dropdown').select2({
-                placeholder: 'Select Structure'
-            });
-            $('.temp_dropdown').select2({
-                placeholder: 'Select Temperature'
-            });
-            $('.pump_type_dropdown').select2({
-                placeholder: 'Select Type'
-            });
-            $('.pump_size_dropdown').select2({
-                placeholder: 'Select Size'
-            });
-        });
 
 
-        document.addEventListener('DOMContentLoaded', (event) => {
-            const inputField = document.getElementsByClassName('readonlyFields');
-            // Function to prevent changes
-            const preventChange = (event) => {
-                event.preventDefault();
-            };
-            for (let index = 0; index < inputField.length; index++) {
-                // Prevent key presses
-                inputField[index].addEventListener('keypress', preventChange);
+            document.addEventListener('DOMContentLoaded', (event) => {
+                const inputField = document.getElementsByClassName('readonlyFields');
+                // Function to prevent changes
+                const preventChange = (event) => {
+                    event.preventDefault();
+                };
+                for (let index = 0; index < inputField.length; index++) {
+                    // Prevent key presses
+                    inputField[index].addEventListener('keypress', preventChange);
 
-                // Prevent cut, copy, paste
-                inputField[index].addEventListener('cut', preventChange);
-                inputField[index].addEventListener('copy', preventChange);
-                inputField[index].addEventListener('paste', preventChange);
+                    // Prevent cut, copy, paste
+                    inputField[index].addEventListener('cut', preventChange);
+                    inputField[index].addEventListener('copy', preventChange);
+                    inputField[index].addEventListener('paste', preventChange);
 
-                // Prevent context menu
-                inputField[index].addEventListener('contextmenu', preventChange);
+                    // Prevent context menu
+                    inputField[index].addEventListener('contextmenu', preventChange);
 
-                // Prevent changes via input event
-                inputField[index].addEventListener('input', preventChange);
-            }
-        });
-
-        function siteOnChange(element) {
-            document.getElementById('group_company_dropdown').value = "";
-            document.getElementById('company_location_dropdown').value = "";
-            const selectedOption = element.options[element.selectedIndex];
-            fetch("project-sites/get/details/" + selectedOption.value, {
-                method: "GET",
-                headers: {
-                    'Content-Type': 'application/json',
-                    'X-CSRF-TOKEN': '{{ csrf_token() }}'
-                },
-            }).then(response => response.json()).then(data => {
-                const response = data.data;
-                if (response.site) {
-                    document.getElementById('group_company_dropdown').value = response.site.service_company_location
-                        ?.group_company_id;
-                    document.getElementById('company_location_dropdown').value = response.site.company_location_id;
+                    // Prevent changes via input event
+                    inputField[index].addEventListener('input', preventChange);
                 }
-            }).catch(error => {
-                console.log("Error : ", error);
-            })
-        }
+            });
 
-        function mixOnChange(element) {
-            fetch("{{ url('customer-products/show') }}" + "/" + element.value, {
-                method: "GET",
-                headers: {
-                    'Content-Type': 'application/json',
-                    'X-CSRF-TOKEN': '{{ csrf_token() }}'
-                },
-            }).then(response => response.json()).then(data => {
-                const response = data.data;
-                if (response.customer_product && response.customer_product.id) {
-                    document.getElementById('mix_name_field').value = response.customer_product.product_name;
-                    document.getElementById('mix_type_field').value = response.customer_product.mix_code;
-                    document.getElementById('total_quantity_field').value = response.customer_product
-                    .total_quantity;
-                    document.getElementById('remaining_quantity_field').value = response.customer_product
-                        .remaining_quantity;
+            function siteOnChange(element) {
+                document.getElementById('group_company_dropdown').value = "";
+                document.getElementById('company_location_dropdown').value = "";
+                const selectedOption = element.options[element.selectedIndex];
+                fetch("project-sites/get/details/" + selectedOption.value, {
+                    method: "GET",
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRF-TOKEN': '{{ csrf_token() }}'
+                    },
+                }).then(response => response.json()).then(data => {
+                    const response = data.data;
+                    if (response.site) {
+                        document.getElementById('group_company_dropdown').value = response.site.service_company_location
+                            ?.group_company_id;
+                        document.getElementById('company_location_dropdown').value = response.site.company_location_id;
+                    }
+                }).catch(error => {
+                    console.log("Error : ", error);
+                })
+            }
+
+            function mixOnChange(element) {
+                fetch("{{ url('customer-products/show') }}" + "/" + element.value, {
+                    method: "GET",
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRF-TOKEN': '{{ csrf_token() }}'
+                    },
+                }).then(response => response.json()).then(data => {
+                    const response = data.data;
+                    if (response.customer_product && response.customer_product.id) {
+                        document.getElementById('mix_name_field').value = response.customer_product.product_name;
+                        document.getElementById('mix_type_field').value = response.customer_product.mix_code;
+                        document.getElementById('total_quantity_field').value = response.customer_product
+                            .total_quantity;
+                        document.getElementById('remaining_quantity_field').value = response.customer_product
+                            .remaining_quantity;
+                    }
+                }).catch(error => {
+                    console.log("Error : ", error);
+                })
+            }
+
+            function cubeMouldOnChange(element) {
+                if (element.value) {
+                    document.getElementById('cubeMouldCheck').checked = true;
+                } else {
+                    document.getElementById('cubeMouldCheck').checked = false;
                 }
-            }).catch(error => {
-                console.log("Error : ", error);
-            })
-        }
-
-        function cubeMouldOnChange(element) {
-            if (element.value) {
-                document.getElementById('cubeMouldCheck').checked = true;
-            } else {
-                document.getElementById('cubeMouldCheck').checked = false;
             }
-        }
 
-        function toggleSection(element, sectionId) {
-            if (element.checked) {
-                document.getElementById(sectionId).classList.remove('hidden_content');
-            } else {
-                document.getElementById(sectionId).classList.add('hidden_content');
+            function toggleSection(element, sectionId) {
+                if (element.checked) {
+                    document.getElementById(sectionId).classList.remove('hidden_content');
+                } else {
+                    document.getElementById(sectionId).classList.add('hidden_content');
+                }
             }
-        }
 
-        function createTempControlUI() {
-            var existingElements = document.getElementsByClassName("tempCtrlUi");
-            var index = (existingElements ? existingElements.length : -1) + 1;
-            var newOptions = ``;
-            var previousTempOptions = document.getElementById('temp_dropdown_0');
-            if (previousTempOptions) {
-                newOptions = previousTempOptions.innerHTML;
-            }
-            var tempDiv = document.createElement('div');
-            tempDiv.className = "row mt-sm-3 mt-2 tempCtrlUi";
-            tempDiv.id = "tempCtrlUi" + index;
-            tempDiv.innerHTML = `
+            function createTempControlUI() {
+                var existingElements = document.getElementsByClassName("tempCtrlUi");
+                var index = (existingElements ? existingElements.length : -1) + 1;
+                var newOptions = ``;
+                var previousTempOptions = document.getElementById('temp_dropdown_0');
+                if (previousTempOptions) {
+                    newOptions = previousTempOptions.innerHTML;
+                }
+                var tempDiv = document.createElement('div');
+                tempDiv.className = "row mt-sm-3 mt-2 tempCtrlUi";
+                tempDiv.id = "tempCtrlUi" + index;
+                tempDiv.innerHTML = `
                             <div class="col-md-5">
                                 <div class="profileinput-box position-relative">
                                     <label class="selext-label">Temperature (°C)</label>
@@ -987,30 +987,30 @@
                             </div>
         `;
 
-            document.getElementById('temp_req_section').appendChild(tempDiv);
+                document.getElementById('temp_req_section').appendChild(tempDiv);
 
-            $('.temp_dropdown').select2({
-                placeholder: 'Select Temperature'
-            });
-        }
+                $('.temp_dropdown').select2({
+                    placeholder: 'Select Temperature'
+                });
+            }
 
-        function createPumpReqUI() {
-            var existingElements = document.getElementsByClassName("pumpReqUi");
-            var index = (existingElements ? existingElements.length : -1) + 1;
-            var newPumpTypeOptions = ``;
-            var previousPumpTypeOptions = document.getElementById('pump_type_dropdown_0');
-            if (previousPumpTypeOptions) {
-                newPumpTypeOptions = previousPumpTypeOptions.innerHTML;
-            }
-            var newPumpSizeOptions = ``;
-            var previousPumpSizeOptions = document.getElementById('pump_size_dropdown_0');
-            if (previousPumpSizeOptions) {
-                newPumpSizeOptions = previousPumpSizeOptions.innerHTML;
-            }
-            var tempDiv = document.createElement('div');
-            tempDiv.className = "row mt-sm-3 mt-2 pumpReqUi";
-            tempDiv.id = "pumpReqUi" + index;
-            tempDiv.innerHTML = `
+            function createPumpReqUI() {
+                var existingElements = document.getElementsByClassName("pumpReqUi");
+                var index = (existingElements ? existingElements.length : -1) + 1;
+                var newPumpTypeOptions = ``;
+                var previousPumpTypeOptions = document.getElementById('pump_type_dropdown_0');
+                if (previousPumpTypeOptions) {
+                    newPumpTypeOptions = previousPumpTypeOptions.innerHTML;
+                }
+                var newPumpSizeOptions = ``;
+                var previousPumpSizeOptions = document.getElementById('pump_size_dropdown_0');
+                if (previousPumpSizeOptions) {
+                    newPumpSizeOptions = previousPumpSizeOptions.innerHTML;
+                }
+                var tempDiv = document.createElement('div');
+                tempDiv.className = "row mt-sm-3 mt-2 pumpReqUi";
+                tempDiv.id = "pumpReqUi" + index;
+                tempDiv.innerHTML = `
                             <div class="col-md-3">
                                 <div class="form-group">
                                     <div class="profileinput-box position-relative">
@@ -1057,59 +1057,59 @@
                                 </span>
                             </div>
         `;
-            document.getElementById('pump_req_section').appendChild(tempDiv);
+                document.getElementById('pump_req_section').appendChild(tempDiv);
 
-            $('.pump_size_dropdown').select2({
-                placeholder: 'Select Size'
-            });
-            $('.pump_type_dropdown').select2({
-                placeholder: 'Select Type'
-            });
+                $('.pump_size_dropdown').select2({
+                    placeholder: 'Select Size'
+                });
+                $('.pump_type_dropdown').select2({
+                    placeholder: 'Select Type'
+                });
 
-        }
+            }
 
-        function removeTempUI(index) {
-            if (index == 0) {
-                return;
-            } else {
-                const elementToBeRemoved = document.getElementById('tempCtrlUi' + index);
-                if (elementToBeRemoved) {
-                    elementToBeRemoved.remove();
+            function removeTempUI(index) {
+                if (index == 0) {
+                    return;
+                } else {
+                    const elementToBeRemoved = document.getElementById('tempCtrlUi' + index);
+                    if (elementToBeRemoved) {
+                        elementToBeRemoved.remove();
+                    }
                 }
             }
-        }
 
-        function removePumpUI(index) {
-            if (index == 0) {
-                return;
-            } else {
-                const elementToBeRemoved = document.getElementById('pumpReqUi' + index);
-                if (elementToBeRemoved) {
-                    elementToBeRemoved.remove();
+            function removePumpUI(index) {
+                if (index == 0) {
+                    return;
+                } else {
+                    const elementToBeRemoved = document.getElementById('pumpReqUi' + index);
+                    if (elementToBeRemoved) {
+                        elementToBeRemoved.remove();
+                    }
                 }
             }
-        }
 
-        function addFiles(element, id, type) {
+            function addFiles(element, id, type) {
 
-            const input = element;
-            const files = input.files;
+                const input = element;
+                const files = input.files;
 
-            const selectedFilesDiv = element;
+                const selectedFilesDiv = element;
 
-            for (let i = 0; i < files.length; i++) {
-                const file = files[i];
+                for (let i = 0; i < files.length; i++) {
+                    const file = files[i];
 
-                // Only process image files
+                    // Only process image files
 
-                const tempDiv = document.createElement('div');
-                tempDiv.className = "col-md-2";
-                const reader = new FileReader();
-                reader.onload = function(e) {
-                    var htmlData = ``;
+                    const tempDiv = document.createElement('div');
+                    tempDiv.className = "col-md-2";
+                    const reader = new FileReader();
+                    reader.onload = function(e) {
+                        var htmlData = ``;
 
-                    if (!file.type.startsWith('image/')) {
-                        htmlData = `
+                        if (!file.type.startsWith('image/')) {
+                            htmlData = `
                         <div class="col-md-2">
                             <div class="upload-image">
                                 <img src="{{ asset('assets/img/attachment.svg') }}" alt="">
@@ -1117,8 +1117,8 @@
                             </div>
                         </div>
                     `;
-                    } else {
-                        htmlData = `
+                        } else {
+                            htmlData = `
                         <div class="col-md-2">
                             <div class="upload-image">
                                 <img src="${e.target.result}" alt="">
@@ -1126,32 +1126,56 @@
                             </div>
                         </div>
                     `;
+                        }
+
+                        tempDiv.innerHTML = htmlData;
+                        const element = document.getElementById(id);
+                        element.appendChild(tempDiv);
                     }
 
-                    tempDiv.innerHTML = htmlData;
-                    const element = document.getElementById(id);
-                    element.appendChild(tempDiv);
-                }
+                    reader.readAsDataURL(file);
 
-                reader.readAsDataURL(file);
+                }
 
             }
 
-        }
-
-        function setApproveDropdown(type) {
-            document.getElementById('approval_status_dropdown').value = type;
-        }
+            function setApproveDropdown(type) {
+                document.getElementById('approval_status_dropdown').value = type;
+            }
 
 
 
-        function selectedPumpType(element, index) {
+            function selectedPumpType(element, index) {
 
-            console.log(element.value);
-            const companyId = document.getElementById('group_company_dropdown').value;
-            changeDropdownOptions(element, ["pump_size_dropdown_" + index], ['pump_sizes'], '/settings/pumps/get-size/',
-                null, ['pump_size_dropdown_' + index], companyId, "group_company_id")
+                console.log(element.value);
+                const companyId = document.getElementById('group_company_dropdown').value;
+                changeDropdownOptions(element, ["pump_size_dropdown_" + index], ['pump_sizes'], '/settings/pumps/get-size/',
+                    null, ['pump_size_dropdown_' + index], companyId, "group_company_id")
 
-        }
-    </script>
+            }
+        </script>
+        @if (session('success'))
+            <script>
+                toast('success', @json(session('success')));
+            </script>
+        @endif
+        @if (session('warning'))
+            <script>
+                toast('warning', @json(session('warning')));
+            </script>
+        @endif
+        @if (session('error'))
+            <script>
+                toast('error', @json(session('error')));
+            </script>
+        @endif
+        @if ($errors->any())
+            <script>
+                @foreach ($errors->all() as $error)
+                    toast('error', @json($error));
+                @endforeach
+            </script>
+        @endif
+    @endsection
+
 @endsection
