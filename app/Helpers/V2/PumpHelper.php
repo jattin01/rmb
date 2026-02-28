@@ -213,10 +213,10 @@ class PumpHelper
         try {
 
             return DB::transaction(function () use ($assignedPumps, $scheduleData, $pumps, $order_id, $pump_start_time, $pump_end_time, $required, $pourStart) {
-             $order = SelectedOrder::find($order_id);
+                $order = SelectedOrder::find($order_id);
                 if (!$order)
-                    return null;    
-            $productType = ProductType::where('type', '=', $order->mix_code)
+                    return null;
+                $productType = ProductType::where('type', '=', $order->mix_code)
                     ->first();
                 $orderTempControl = OrderTempControl::where('order_id', $order->og_order_id)->first();
                 if ($productType) {
@@ -232,7 +232,7 @@ class PumpHelper
 
                 $busyStart = $pump_start_time->copy()->subMinutes($totalTime);
 
-               
+
 
                 $reqCap = $required['capacity'] ?? null;
                 $reqType = $required['type'] ?? null;
@@ -247,134 +247,182 @@ class PumpHelper
                             && $slot['order_no'] !== $order->order_no;
                     }
                 );
-               
+                $slotTypeArr = $this->prepareSlotsWithStartKey(
+                    $filteredSlots,
+                    $pourStart,
+                );
+
 
                 foreach ($filteredSlots as $key => $previous) {
-                    $site_to_site_distance = $previous['pouring_start']->lt($pourStart) ? ScheduleService::getDistance($previous['location'],$order->site_id) : ScheduleService::getDistance($order->site_id,$previous['location']);
+                    $slotTypePre = $slotTypeArr[$previous['pouring_start']]['slot_type'];
+                    $slotType = $slotTypeArr[$pourStart]['slot_type'];
+                    dd($slotTypePre, $slotType);
                     $pump = collect($pumps)->firstWhere('pump_id', $previous['pump_id']);
 
                     if (!$pump)
                         continue;
+
+
                     $slotStart = Carbon::parse($previous['start']);
                     $slotEnd = Carbon::parse($previous['end']);
 
 
                     $overlaps = $slotStart->lt(Carbon::parse($pump_end_time)) && $slotEnd->gt($busyStart);
-                    
+
 
                     if ($overlaps) {
-                        $endTimePre = $previous['end']->copy();
-                        $startTimePre = $previous['start']->copy();
+                        $qcTime = $slotType == 'first' ? 0 : $scheduleData->qc_time;
+                        $travelTime = $slotType == 'first' ? 0 : $order->travel_to_site;
+                        $prevLocation = $previous['location'];
+                        $currentSite = $order->site_id;
 
-                        if (!$previous['site_to_site']) {
-                            $pumpId = $previous['pump_id'];
+                        // Distance calculations
+                        $distancePrevToCurrent = ScheduleService::getDistance($prevLocation, $currentSite);
+                        $distanceCurrentToPrev = ScheduleService::getDistance($currentSite, $prevLocation);
 
-                            $qcTime = $previous['pouring_start']->lt($pourStart) ? 0 : $scheduleData->qc_time;
-                            $travelTime = $previous['pouring_start']->lt($pourStart) ? 0 : $order->travel_to_site;
-                            $returnTime = $previous['pouring_start']->lt($pourStart) ? $order->return_to_plant : $site_to_site_distance;
+                        $site_to_site_distance = ($slotType === 'first')
+                            ? $distanceCurrentToPrev
+                            : $distancePrevToCurrent;
 
+                        // returnTime
+                        $returnTime = in_array($slotType, ['first', 'next'])
+                            ? $order->return_to_plant
+                            : $site_to_site_distance;
 
-                            $inspTime = $scheduleData->insp_time;
-                            $waitingTime = $scheduleData->qc_time + $inspTime + $order->travel_to_site + $scheduleData->loading_time + 4;
-                            $waitingTimePre = $scheduleData->qc_time + $inspTime + $order->travel_to_site + $scheduleData->loading_time;
-                            $installTime = $pump['installation_time'] ?? 10;
-                            $totalTime = $installTime + $waitingTime + $qcTime + $travelTime + $inspTime + 5;
+                        $inspTime = $scheduleData->insp_time;
+                        
+                        $waitingTime = $scheduleData->qc_time + $inspTime + $order->travel_to_site + $scheduleData->loading_time + 4;
+                        $waitingTimePre = $scheduleData->qc_time + $inspTime + $previous['travel_time'] + $previous['loading_time'] + 4;
 
+                        $installTime = $pump['installation_time'] ?? 10;
 
-                            $qcStart = Carbon::parse($pourStart)->copy()->subMinutes($totalTime);
-                            $qcEnd = $qcTime!==0?$qcStart->copy()->addMinutes($qcTime):$qcStart->copy();
-                            $travelStart = $travelTime!==0?$qcEnd->copy()->addMinute():$qcEnd->copy();
-                            $travelEnd = $travelStart->copy()->addMinutes($travelTime);
-                            $inspStart =  $travelTime!==0 ? $travelEnd->copy()->addMinute(): $travelEnd->copy();
-                            $inspEnd = $inspStart->copy()->addMinutes($inspTime);
-                            $installStart = $inspEnd->copy()->addMinute();
-                            $installEnd = $installStart->copy()->addMinutes($installTime);
-                            $waitingStart = $inspEnd->copy()->addMinute();
-                            $waitingEnd = $waitingStart->copy()->addMinutes($waitingTime);
-                            $returnStart = $pump_end_time->copy()->subMinutes($order->return_to_plant + 1);
-                            $returnEnd = $returnStart->copy()->addMinutes($returnTime);
+                       
 
+                        $totalTime = $installTime + $waitingTime + $qcTime + $travelTime + $inspTime + 4;
+                        $start = Carbon::parse($pourStart)->copy()->subMinutes($totalTime);
 
 
-
-                            $qcTimePre = $previous['pouring_start']->lt($pourStart) ? $scheduleData->qc_time : 0;
-                            $travelTimePre = $previous['pouring_start']->lt($pourStart) ? $order->travel_to_site : 0;
-                            $returnTimePre = $previous['pouring_start']->lt($pourStart) ? $site_to_site_distance : $order->return_to_plant;
-                            $totalTimePre = $installTime + $waitingTimePre + $qcTimePre + $travelTimePre + $inspTime + 5;
-
-
-
-
-
-
-                            $qcStartPre = Carbon::parse($previous['pouring_start'])->copy()->subMinutes($totalTimePre);
-                            $qcEndPre = $qcTimePre!==0?$qcStartPre->copy()->addMinutes($qcTimePre):$qcStartPre->copy();
-                            $travelStartPre = $travelTimePre!==0?$qcEndPre->copy()->addMinute():$qcEndPre->copy();
-                            $travelEndPre = $travelStartPre->copy()->addMinutes($travelTimePre);
-                            $inspStartPre =  $travelTimePre!==0 ? $travelEndPre->copy()->addMinute(): $travelEndPre->copy();
-                            $inspEndPre = $inspStartPre->copy()->addMinutes($inspTime);
-                            $installStartPre = $inspEndPre->copy()->addMinute();
-                            $installEndPre = $installStartPre->copy()->addMinutes($installTime);
-                            $waitingStartPre = $inspEndPre->copy()->addMinute();
-                            $waitingEndPre = $waitingStartPre->copy()->addMinutes($waitingTime);
-                            $returnStartPre = $previous['end']->copy()->subMinutes($order->return_to_plant);
-                            $returnEndPre = $returnStartPre->copy()->addMinutes($returnTimePre);
-
-
-
-                            $previousStart = $qcStartPre;
-                            $previousEnd = $returnEndPre;
-                            $newStart = $qcStart;
-                            $newEnd = $returnEnd;
-
-
-                            if ($previousStart->lte($newEnd) && $previousEnd->gte($newStart)) {
-                                continue;
-                            }
-
-                            $pumpData = Pump::find($previous['pump_id']);
-                            $previousData = SelectedOrderPumpSchedule::
-                                where('pump', $pumpData->pump_name)
-                                ->where('qc_start', $previous['start'])
-                                ->where('return_end', $previous['end'])
-                                ->where('order_no', $previous['order_no'])
-                                ->first();
+                        $qcStart = $slotType === 'first' ? $start->copy() : null;
+                        $qcEnd = $slotType === 'first' ? $qcStart->copy()->addMinutes($qcTime) : null;
+                        $travelStart = $slotType === 'first' ? $qcEnd->copy()->addMinute() : null;
+                        $travelEnd = $slotType === 'first' ? $travelStart->copy()->addMinutes($travelTime) : null;
+                        $inspStart = $slotType === 'first' ? $travelEnd->copy()->addMinute() : $start->copy();
+                        $inspEnd = $inspStart->copy()->addMinutes($inspTime);
+                        $installStart = $inspEnd->copy()->addMinute();
+                        $installEnd = $installStart->copy()->addMinutes($installTime);
+                        $waitingStart = $inspEnd->copy()->addMinute();
+                        $waitingEnd = $waitingStart->copy()->addMinutes($waitingTime);
+                        $returnStart = $waitingStart->addMinute();
+                        $returnEnd = $returnStart->copy()->addMinutes($returnTime);
 
 
 
 
-                            $returnEnd = carbon::parse($previousData->return_start)->copy()->addMinutes($returnTimePre);
-                            $previousData->qc_start = $qcStartPre;
-                            $previousData->qc_time = $qcTimePre;
-                            $previousData->qc_end = $qcEndPre;
-                            $previousData->travel_start = $travelStartPre;
-                            $previousData->travel_time = $travelTimePre;
-                            $previousData->travel_end = $travelEndPre;
-                            $previousData->insp_start = $inspStartPre;
-                            $previousData->insp_end = $inspEndPre;
-                            $previousData->install_start = $installStartPre;
-                            $previousData->install_end = $installEndPre;
-                            $previousData->waiting_start = $waitingStartPre;
-                            $previousData->waiting_end = $waitingEndPre;
-                            $previousData->return_time = $returnTimePre;
-                            $previousData->return_end = $returnEndPre;
-                            $previousData->save();
 
-                            $scheduleData->pump_busy_slots[$key]['return_time'] = $returnTimePre;
-                            $scheduleData->pump_busy_slots[$key]['end'] = $returnEndPre;
-                            $scheduleData->pump_busy_slots[$key]['site_to_site'] = $previous['pouring_start']->lt($pourStart) ? true: false;
+                        $site_to_site_distancePre = ($slotType === 'next')
+                            ? $distancePrevToCurrent
+                            : $distanceCurrentToPrev;
+                        $qcTimePre = $slotTypePre === 'first' ? $previous['qc_time'] : 0;
+                        $travelTimePre = $slotTypePre === 'first' ? $previous['travel_time'] : 0;
+                        $returnTimePre = in_array($slotType, ['first', 'next'])
+                            ? $order->return_to_plant
+                            : $site_to_site_distancePre;
+
+
+                        $bufferMinutesPre =
+                            ($installTime > 0 ? 1 : 0) +
+                            ($waitingTimePre > 0 ? 1 : 0) +
+                            ($qcTimePre > 0 ? 1 : 0) +
+                            ($travelTimePre > 0 ? 1 : 0) +
+                            ($inspTime > 0 ? 1 : 0);
+                        $totalTimePre = $installTime + $waitingTimePre + $qcTimePre + $travelTimePre + $inspTime + $bufferMinutesPre;
 
 
 
-                            return [
-                                'pump' => $pump,
-                                'index' => $key,
-                                'travel_time' => $travelTime,
-                                'qc_time' => $qcTime,
-                                'return_time' => $returnTime,
-                                'site_to_site' => $previous['pouring_start']->lt($pourStart) ? false : true,
-                            ];
+
+
+
+                        $startPre = Carbon::parse($previous['pouring_start'])->copy()->subMinutes($totalTimePre);
+
+                        //need to change
+                        $qcStartPre = $slotTypePre === 'first' ? $startPre->copy() : null;
+                        $qcEndPre = $slotTypePre === 'first' ? $qcStartPre->copy()->addMinutes($qcTimePre) : null;
+
+                        $travelStartPre = $slotTypePre === 'first' ? $qcEndPre->copy()->addMinute() : null;
+                        $travelEndPre = $slotTypePre === 'first' ? $travelStartPre->copy()->addMinutes($travelTimePre) : null;
+
+                        $inspStartPre = $slotTypePre === 'first'
+                            ? $travelEndPre->copy()->addMinute()
+                            : $startPre->copy();
+
+                        $inspEndPre = $inspStartPre->copy()->addMinutes($inspTimePre);
+
+                        $installStartPre = $inspEndPre->copy()->addMinute();
+                        $installEndPre = $installStartPre->copy()->addMinutes($installTimePre);
+
+                        $waitingStartPre = $inspEndPre->copy()->addMinute();
+                        $waitingEndPre = $waitingStartPre->copy()->addMinutes($waitingTimePre);
+
+                        $returnStartPre = $waitingEndPre->copy()->addMinute();
+                        $returnEndPre = $returnStartPre->copy()->addMinutes($returnTimePre);
+
+
+
+                        $previousStart = $qcStartPre;
+                        $previousEnd = $returnEndPre;
+                        $newStart = $qcStart;
+                        $newEnd = $returnEnd;
+
+
+                        if ($previousStart->lte($newEnd) && $previousEnd->gte($newStart)) {
+                            continue;
                         }
+
+                        $pumpData = Pump::find($previous['pump_id']);
+                        $previousData = SelectedOrderPumpSchedule::
+                            where('pump', $pumpData->pump_name)
+                            ->where('pouring_start', $previous['pouring_start'])
+                            ->where('order_no', $previous['order_no'])
+                            ->first();
+                        if (!$previousData)
+                            dd($previousData, $previous['order_no'], $previous['start'], $previous['end'], $pump);
+
+
+
+
+                        $returnEnd = Carbon::parse($previousData->return_start)->copy()->addMinutes($returnTimePre);
+                        $previousData->qc_start = $qcStartPre;
+                        $previousData->qc_time = $qcTimePre;
+                        $previousData->qc_end = $qcEndPre;
+                        $previousData->travel_start = $travelStartPre;
+                        $previousData->travel_time = $travelTimePre;
+                        $previousData->travel_end = $travelEndPre;
+                        $previousData->insp_start = $inspStartPre;
+                        $previousData->insp_end = $inspEndPre;
+                        $previousData->install_start = $installStartPre;
+                        $previousData->install_end = $installEndPre;
+                        $previousData->waiting_start = $waitingStartPre;
+                        $previousData->waiting_end = $waitingEndPre;
+                        $previousData->return_time = $returnTimePre;
+                        $previousData->return_end = $returnEndPre;
+                        $previousData->save();
+
+                        $scheduleData->pump_busy_slots[$key]['return_time'] = $returnTimePre;
+                        $scheduleData->pump_busy_slots[$key]['end'] = $returnEndPre;
+                        $scheduleData->pump_busy_slots[$key]['site_to_site'] = $previous['pouring_start']->lt($pourStart) ? true : false;
+
+
+
+                        return [
+                            'pump' => $pump,
+                            'index' => $key,
+                            'travel_time' => $travelTime,
+                            'qc_time' => $qcTime,
+                            'return_time' => $returnTime,
+                            'slot_type'=>$slotType,
+                            'site_to_site' => $slotType!=='last' ? false : true,
+                        ];
+
                     }
                 }
                 return null;
@@ -393,6 +441,51 @@ class PumpHelper
 
 
     }
+    function prepareSlotsWithStartKey(array $busySlots, $newStart): array
+    {
+        $slots = [];
+
+
+        foreach ($busySlots as $item) {
+            $slots[] = [
+                'start' => $item['pouring_start'],
+            ];
+        }
+
+        $slots[] = [
+            'start' => $newStart,
+        ];
+
+        usort($slots, function ($a, $b) {
+            return $a['start']->timestamp <=> $b['start']->timestamp;
+        });
+
+        $total = count($slots);
+
+        foreach ($slots as $index => &$slot) {
+
+            if ($total === 1) {
+                $slot['slot_type'] = 'first';
+            } elseif ($index === 0) {
+                $slot['slot_type'] = 'first';
+            } elseif ($index === $total - 1) {
+                $slot['slot_type'] = 'last';
+            } else {
+                $slot['slot_type'] = 'next';
+            }
+
+            $slot['key'] = $slot['start']->timestamp;
+        }
+        unset($slot);
+
+        $final = [];
+        foreach ($slots as $slot) {
+            $final[$slot['key']] = $slot;
+        }
+
+        return $final;
+    }
+
 
 
 }

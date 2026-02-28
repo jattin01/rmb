@@ -1099,15 +1099,15 @@ class ScheduleService
 
 
             $siteToSite = null;
-            // $siteToSite = PumpHelper::getOverlapPumps(
-            //     $scheduleData,
-            //     $scheduleData->pumps_availability,
-            //     $order->id,
-            //     $groupPumpLoadingTime,
-            //     $groupPumpEndTime,
-            //     $requirements[$p],
-            //     $groupPourStart,
-            // );
+            $siteToSite = PumpHelper::getOverlapPumps(
+                $scheduleData,
+                $scheduleData->pumps_availability,
+                $order->id,
+                $groupPumpLoadingTime,
+                $groupPumpEndTime,
+                $requirements[$p],
+                $groupPourStart,
+            );
 
 
 
@@ -1153,36 +1153,44 @@ class ScheduleService
             $installTime = (int) ($pump['installation_time'] ?? 10);
             $qcTime = isset($scheduleData->pouring_pump['qc_time']) ? $scheduleData->pouring_pump['qc_time'] : $scheduleData->qc_time;
             $travelTime = isset($scheduleData->pouring_pump['travel_time']) ? $scheduleData->pouring_pump['travel_time'] : $order->travel_to_site;
-            $site_to_site = isset($scheduleData->pouring_pump['site_to_site']) ? $scheduleData->pouring_pump['site_to_site'] : false;
             $returnTime = isset($scheduleData->pouring_pump['return_time']) ? $scheduleData->pouring_pump['return_time'] : $order->return_to_plant;
+            $slotType =  isset($scheduleData->pouring_pump['slot_type']) ? $scheduleData->pouring_pump['slot_type'] : null;
+            $firstSlot = $slotType===null || $slotType=== 'first';
 
 
 
+            $totalTime = $firstSlot
+                ? (
+                    $installTime +
+                    (int) $qcTime +
+                    (int) $scheduleData->insp_time +
+                    (int) $travelTime + 4
+                )
+                : (
+                    $installTime +
+                    (int) $scheduleData->insp_time + 2
+                );
 
-            $totalTime =
-                $installTime +
-                (int) $qcTime +
-                (int) $scheduleData->insp_time +
-                (int) $travelTime + 4;
 
-            $qcStart = $groupPumpLoadingTime->copy()->subMinutes($totalTime);
+            $start = $groupPumpLoadingTime->copy()->subMinutes($totalTime);
+            $qcStart = $firstSlot ? $start->copy() : null;
+            $qcEnd = $firstSlot ? $qcStart->copy()->addMinutes($qcTime) : null;
 
+            $travelStart = $firstSlot ? $qcEnd->copy()->addMinute() : null;
+            $travelEnd = $firstSlot ? $travelStart->copy()->addMinutes($travelTime) : null;
 
-            $qcEnd = $qcStart->copy()->addMinutes($qcTime);
-            $travelStart = $qcEnd->copy()->addMinute();
-            $travelEnd = $travelStart->copy()->addMinutes($travelTime);
-            $inspStart = $travelEnd->copy()->addMinute();
+            //pump start time is from insp_start if it travel site to site and pump is assign for first slot
+            $inspStart = $firstSlot ? $travelEnd->copy()->addMinute() : $start->copy();
             $inspEnd = $inspStart->copy()->addMinutes($scheduleData->insp_time);
+
             $installStart = $inspEnd->copy()->addMinute();
             $installEnd = $installStart->copy()->addMinutes($installTime);
+
             $waitingStart = $installEnd->copy()->addMinute();
             $waitingEnd = $groupPourStart->copy()->subMinute();
-            // if ($waitingEnd->lt($waitingStart))
-            //     $waitingEnd = $waitingStart->copy();
             $waitingTime = $waitingStart->diffInMinutes($waitingEnd);
-            $pouringTime = $groupPourStart->diffInMinutes($groupPourEnd);
 
-            // Clean + return after group pour end
+            $pouringTime = $groupPourStart->diffInMinutes($groupPourEnd);
             $cleanStart = $groupPourEnd->copy()->addMinute();
             $cleanEnd = $cleanStart->copy()->addMinutes((int) $scheduleData->cleaning_time);
             $returnStart = $cleanEnd->copy()->addMinute();
@@ -1190,18 +1198,24 @@ class ScheduleService
             $pump = Pump::find($pumpId);
 
             $scheduleData->pump_busy_slots[] = [
-                'start' => $qcStart->copy(),
+                'start' => $start->copy(),
                 'end' => $returnEnd->copy(),
                 'pump_id' => $pumpId,
                 'type' => $pump->type,
                 'capacity' => $pump->pump_capacity,
                 'location' => $order->site_id,
                 'order_no' => $order->order_no,
-                'qc_time' => $scheduleData->qc_time,
-                'return_time' => $scheduleData->return_time,
-                'site_to_site' => $site_to_site,
-                'pouring_start' => $groupPourStart->copy()
+                'pouring_start' => $groupPourStart->copy(),
+                'qc_time' => $qcTime,
+                'loading_time' => $scheduleData->schedules[0]['loading_time'],
+                'travel_time' => $travelTime,
+                'insp_time' => $scheduleData->schedules[0]['insp_time'],
+                'return_time' => $returnTime,
+                'install_time' => $pump->installation_time,
+                'site_to_site' => $siteToSite ? true : false,
             ];
+         
+
 
 
 
@@ -1441,9 +1455,10 @@ class ScheduleService
             // convert seconds to minutes
             $minutes = ceil($seconds / 60);
 
-            return 20;
+            return $minutes;
         }
 
         return 0;
     }
+
 }
