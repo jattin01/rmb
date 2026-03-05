@@ -38,6 +38,7 @@ class SelectedOrder extends Model
         'priority',
         'flexibility',
         'is_temp_required',
+        'failure_reason'
         ];
 
     protected $appends = [

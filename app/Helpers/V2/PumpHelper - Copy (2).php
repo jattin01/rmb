@@ -213,11 +213,15 @@ class PumpHelper
         $clean_end,
         $required = null,
         $pourStart,
+        $qc,
+        $Loading,
+        $travel,
+        $inspTime,
         $installTime
     ) {
         try {
 
-            return DB::transaction(function () use ($scheduleData, $pump_start_time, $pumps, $order_id, $clean_end, $required, $pourStart, $installTime) {
+            return DB::transaction(function () use ($Loading, $scheduleData, $pumps, $order_id, $pump_start_time, $pump_end_time, $clean_end, $required, $pourStart, $qc, $travel, $inspTime, $installTime) {
 
                 $order = SelectedOrder::find($order_id);
                 if (!$order)
@@ -225,7 +229,7 @@ class PumpHelper
 
                 $reqCap = $required['capacity'] ?? null;
                 $reqType = $required['type'] ?? null;
-                $pumpsCollect = collect($scheduleData->pump_busy_slots)
+                $pumps = collect($scheduleData->pump_busy_slots)
                     ->filter(function ($slot) use ($reqCap, $reqType, $order) {
                         return $slot['capacity'] == $reqCap
                             && $slot['type'] == $reqType
@@ -235,89 +239,237 @@ class PumpHelper
                     ->unique()
                     ->values();
 
-                foreach ($pumpsCollect as $key => $pump) {
+                foreach ($pumps as $key => $pump) {
 
-                    $pumpSlots = collect($scheduleData->pump_busy_slots)
+                    $previousSlots = collect($scheduleData->pump_busy_slots)
                         ->where('pump_id', $pump)
                         ->sortBy('pouring_start')
                         ->values();
 
+
                     $currentPour = Carbon::parse($pourStart);
 
-                    $previousSlot = $pumpSlots
-                        ->where('pouring_start', '<', $currentPour)
+                    $previousSlot = $previousSlots
+                        ->filter(function ($slot) use ($currentPour) {
+                            return Carbon::parse($slot['pouring_start'])
+                                ->lt($currentPour);
+                        })
                         ->sortByDesc('pouring_start')
                         ->first();
 
-                    $nextSlot = $pumpSlots
-                        ->where('pouring_start', '>', $currentPour)
+                    $nextSlot = $previousSlots
+                        ->filter(function ($slot) use ($currentPour) {
+                            return Carbon::parse($slot['pouring_start'])
+                                ->gt($currentPour);
+                        })
                         ->sortBy('pouring_start')
                         ->first();
 
-                    if (!$previousSlot && !$nextSlot) {
+                    $isFirst = !$previousSlot && $nextSlot;
+                    $isLast = !$nextSlot && $previousSlot;
+                    $isMiddle = $previousSlot && $nextSlot;
+
+                    if ($previousSlot === null && $nextSlot === null) {
                         continue;
-                    }
-
-                    $slotType = !$previousSlot ? 'first'
-                        : (!$nextSlot ? 'last' : 'middle');
-
-                    $qcTime = $slotType === 'first' ? $scheduleData->qc_time : 0;
-                    $travelTime = $slotType === 'first' ? $order->travel_to_site : 0;
-
-                    $returnTime = match ($slotType) {
-                        'first' => ScheduleService::getDistance($order->site_id, $nextSlot['location']),
-                        'middle' => ScheduleService::getDistance($order->site_id, $nextSlot['location']),
-                        'last' => $order->return_to_plant,
                     };
 
-                    $totalTime = $installTime + $qcTime + $travelTime + $scheduleData->insp_time +  (
+                    if ($isFirst) {
+                        $qcTime = $qc;
+                        $travelTime = $order->travel_to_site;
+                        $returnTime =
+                            ScheduleService::getDistance(
+                                $order->site_id,
+                                $nextSlot['location']
+                            );
+                    }
+                    if ($isMiddle) {
+
+                        $qcTime = 0;
+                        $travelTime = 0;
+                        $returnTime =
+                                ScheduleService::getDistance(
+                                    $order->site_id,
+                                    $nextSlot['location']
+                                );
+                        
+                    }
+                    if ($isLast) {
+                        $qcTime = 0;
+                        $travelTime = 0;
+                        $returnTime = $order->return_to_plant;
+                    }
+
+                    $totalTime =
+                        $installTime +
+                        $qcTime +
+                        $travelTime +
+                        $inspTime +
+                        (
                             ($installTime > 0 ? 1 : 0) +
                             ($qcTime > 0 ? 1 : 0) +
                             ($travelTime > 0 ? 1 : 0) +
-                            ($scheduleData->insp_time > 0 ? 1 : 0));
+                            ($inspTime > 0 ? 1 : 0)
+                        );
 
-                    $start = Carbon::parse($pump_start_time)->subMinutes($totalTime);
-                    $end = Carbon::parse($clean_end)->addMinutes($returnTime);
+                    $start = Carbon::parse($pourStart)
+                        ->copy()
+                        ->subMinutes($totalTime);
 
-                    $hasConflict = $pumpSlots->contains(function ($existing) use ($start, $end) {
+                    $end = Carbon::parse($clean_end)
+                        ->copy()
+                        ->addMinutes($returnTime);
+
+                    /* -------------------------------------------------
+                       STEP 2 — Overlap Check (pure time logic)
+                    -------------------------------------------------*/
+
+                    $hasConflict = false;
+
+                    foreach ($previousSlots as $existing) {
                         $existingStart = Carbon::parse($existing['start']);
                         $existingEnd = Carbon::parse($existing['end']);
 
-                        return $start->lt($existingEnd) && $end->gt($existingStart);
-                    });
+                        if (
+                            $start->lt($existingEnd) &&
+                            $end->gt($existingStart)
+                        ) {
+                            $hasConflict = true;
+                            break;
+                        }
+                    }
 
-                    if ($hasConflict) {
+                    if ($hasConflict)
                         continue;
-                    }
+
                     $pumpData = Pump::find($pump);
+                    if ($isFirst) {
 
-                    if ($previousSlot) {
-                        self::updatePreviousSlot($previousSlot, $order, $pump, $pumpData, $scheduleData);
+                        $nextData = SelectedOrderPumpSchedule::where('order_no', $nextSlot['order_no'])
+                            ->where('pump', $pumpData->pump_name)
+                            ->where('pouring_start', $nextSlot['pouring_start'])
+                            ->first();
+
+                        if ($nextData) {
+                            $nextData->qc_time = 0;
+                            $nextData->travel_time = 0;
+                            $nextData->travel_start = null;
+                            $nextData->travel_end = null;
+                            $nextData->qc_start = null;
+                            $nextData->qc_end = null;
+                            $nextData->save();
+
+                            foreach ($scheduleData->pump_busy_slots as $i => $slot) {
+
+                                if (
+                                    $slot['order_no'] == $nextSlot['order_no'] &&
+                                    $slot['pump_id'] == $pump
+                                ) {
+                                    $scheduleData->pump_busy_slots[$i]['qc_time'] = 0;
+                                    $scheduleData->pump_busy_slots[$i]['travel_time'] = 0;
+                                    $scheduleData->pump_busy_slots[$i]['start']= $nextData->insp_start;
+
+                                }
+                            }
+                        }
                     }
+                    if ($isLast) {
+                        
+                        $prevData = SelectedOrderPumpSchedule::where('order_no', $previousSlot['order_no'])
+                            ->where('pump', $pumpData->pump_name)
+                            ->where('pouring_start', $previousSlot['pouring_start'])
+                            ->first();
+                        $orderPrev = SelectedOrder::find($prevData->order_id);
 
-                    if ($nextSlot) {
-                        self::updateNextSlot($nextSlot, $pump, $pumpData, $scheduleData);
+                        if ($prevData) {
+                            $prevReturnTime = ScheduleService::getDistance($orderPrev->site_id,$order->site_id);
+                            $returnPreStart = Carbon::parse($prevData->cleaning_end)->copy()->adMinute();
+                            $returnPreEnd = $returnPreStart->copy()->addMinutes($prevReturnTime);
+                            $prevData->return_time = $prevReturnTime;
+                            $prevData->return_start = $returnPreStart;
+                            $prevData->return_end = $returnPreEnd;
+                            $prevData->save();
+
+                            foreach ($scheduleData->pump_busy_slots as $i => $slot) {
+
+                                if (
+                                    $slot['order_no'] == $previousSlot['order_no'] &&
+                                    $slot['pump_id'] == $pump
+                                ) {
+                                    $scheduleData->pump_busy_slots[$i]['return_time'] = $prevReturnTime;
+                                    $scheduleData->pump_busy_slots[$i]['end']= $returnPreEnd;
+
+                                }
+                            }
+                        }
+
                     }
+                     if ($isMiddle) {
+                        
+                        $prevData = SelectedOrderPumpSchedule::where('order_no', $previousSlot['order_no'])
+                            ->where('pump', $pumpData->pump_name)
+                            ->where('pouring_start', $previousSlot['pouring_start'])
+                            ->first();
+                        $orderPrev = SelectedOrder::find($prevData->order_id);
 
-                    $filtered = array_filter($pumps, function ($pump) use ($pumpData) {
-                        return $pump['pump_id'] == $pumpData->id;
-                    });
+                        if ($prevData) {
+                            $prevReturnTime = ScheduleService::getDistance($orderPrev->site_id,$order->site_id);
+                            $returnPreStart = Carbon::parse($prevData->cleaning_end)->copy()->adMinute();
+                            $returnPreEnd = $returnPreStart->copy()->addMinutes($prevReturnTime);
+                            $prevData->return_time = $prevReturnTime;
+                            $prevData->return_start = $returnPreStart;
+                            $prevData->return_end = $returnPreEnd;
+                            $prevData->save();
 
-                    if (empty($filtered)) {
-                        return null;
+                            foreach ($scheduleData->pump_busy_slots as $i => $slot) {
+
+                                if (
+                                    $slot['order_no'] == $previousSlot['order_no'] &&
+                                    $slot['pump_id'] == $pump
+                                ) {
+                                    $scheduleData->pump_busy_slots[$i]['return_time'] = $prevReturnTime;
+                                    $scheduleData->pump_busy_slots[$i]['end']= $returnPreEnd;
+
+                                }
+                            }
+                        }
+                           $nextData = SelectedOrderPumpSchedule::where('order_no', $nextSlot['order_no'])
+                            ->where('pump', $pumpData->pump_name)
+                            ->where('pouring_start', $nextSlot['pouring_start'])
+                            ->first();
+
+                        if ($nextData) {
+                            $nextData->qc_time = 0;
+                            $nextData->travel_time = 0;
+                            $nextData->travel_start = null;
+                            $nextData->travel_end = null;
+                            $nextData->qc_start = null;
+                            $nextData->qc_end = null;
+                            $nextData->save();
+
+                            foreach ($scheduleData->pump_busy_slots as $i => $slot) {
+
+                                if (
+                                    $slot['order_no'] == $nextSlot['order_no'] &&
+                                    $slot['pump_id'] == $pump
+                                ) {
+                                    $scheduleData->pump_busy_slots[$i]['qc_time'] = 0;
+                                    $scheduleData->pump_busy_slots[$i]['travel_time'] = 0;
+                                    $scheduleData->pump_busy_slots[$i]['start']= $nextData->insp_start;
+
+                                }
+                            }
+                        }
+
                     }
-
-                    $key = array_key_first($filtered);   // get original key
-                    $pumpValue = $filtered[$key];
-
 
                     return [
-                        'pump' => $pumpValue,
+                        'pump' => $pump,
                         'index' => $key,
                         'travel_time' => $travelTime,
                         'qc_time' => $qcTime,
                         'return_time' => $returnTime,
-                        'slot_type' => $slotType,
+                        'slot_type' => $isFirst ? 'first' : ($isMiddle ? 'next' : 'last'),
+                        'site_to_site' => true,
                     ];
                 }
 
@@ -336,75 +488,5 @@ class PumpHelper
             return null;
         }
     }
-    private static function updatePreviousSlot($previousSlot, $order, $pump, $pumpData, $scheduleData)
-    {
-        $prevData = SelectedOrderPumpSchedule::where('order_no', $previousSlot['order_no'])
-            ->where('pump', $pumpData->pump_name)
-            ->where('pouring_start', $previousSlot['pouring_start'])
-            ->first();
-
-        if (!$prevData)
-            return;
-
-        $orderPrev = SelectedOrder::find($prevData->order_id);
-        if (!$orderPrev)
-            return;
-
-        $prevReturnTime = ScheduleService::getDistance(
-            $orderPrev->site_id,
-            $order->site_id
-        );
-
-        $returnPreStart = Carbon::parse($prevData->cleaning_end)->addMinute();
-        $returnPreEnd = $returnPreStart->copy()->addMinutes($prevReturnTime);
-
-        $prevData->update([
-            'return_time' => $prevReturnTime,
-            'return_start' => $returnPreStart,
-            'return_end' => $returnPreEnd,
-        ]);
-
-        foreach ($scheduleData->pump_busy_slots as $i => $slot) {
-            if (
-                $slot['order_no'] == $previousSlot['order_no'] &&
-                $slot['pump_id'] == $pump &&
-                $slot['pouring_start'] == $previousSlot['pouring_start']
-            ) {
-                $scheduleData->pump_busy_slots[$i]['end'] = $returnPreEnd;
-                break;
-            }
-        }
-    }
-    private static function updateNextSlot($nextSlot, $pump, $pumpData, $scheduleData)
-    {
-        $nextData = SelectedOrderPumpSchedule::where('order_no', $nextSlot['order_no'])
-            ->where('pump', $pumpData->pump_name)
-            ->where('pouring_start', $nextSlot['pouring_start'])
-            ->first();
-
-        if (!$nextData)
-            return;
-
-        $nextData->update([
-            'qc_time' => 0,
-            'travel_time' => 0,
-            'travel_start' => $nextData->insp_start,
-            'travel_end' => $nextData->insp_start,
-            'qc_start' => $nextData->insp_start,
-            'qc_end' => $nextData->insp_start,
-        ]);
-
-        foreach ($scheduleData->pump_busy_slots as $i => $slot) {
-            if (
-                $slot['order_no'] == $nextSlot['order_no'] &&
-                $slot['pump_id'] == $pump &&
-                $slot['pouring_start'] == $nextSlot['pouring_start']
-            ) {
-                $scheduleData->pump_busy_slots[$i]['start'] = $nextData->insp_start;
-                break;
-            }
-        }
-    }
-
 
 }

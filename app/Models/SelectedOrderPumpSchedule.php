@@ -9,7 +9,7 @@ class SelectedOrderPumpSchedule extends Model
 {
     use HasFactory;
 
-    protected $fillable = [];
+   protected $guarded = [];
    
     protected $hidden = ['deleted_at'];
 
@@ -34,7 +34,5 @@ class SelectedOrderPumpSchedule extends Model
             });
         }   
     }
-    public function pump(){
-        return $this->belongsTo(Pump::class,'pump_name','pump');
-    }
+   
 }

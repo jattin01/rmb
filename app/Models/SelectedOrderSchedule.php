@@ -38,8 +38,16 @@ class SelectedOrderSchedule extends Model
     {
         return $this->belongsTo(TransitMixer::class, 'transit_mixer', 'truck_name');
     }
-     public function order()
+    public function order()
     {
         return $this->belongsTo(SelectedOrder::class, 'order_id');
+    }
+    public function pump()
+    {
+        return $this->hasOne(
+            SelectedOrderPumpSchedule::class,
+            'order_id',
+            'order_id'
+        )->where('pouring_start', $this->pouring_start);
     }
 }
