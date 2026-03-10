@@ -2,8 +2,12 @@
 namespace App\Helpers\V2;
 
 use App\Helpers\ConstantHelper;
+use App\Lib\Services\ScheduleService;
 use App\Models\TransitMixer;
 use Carbon\Carbon;
+use Illuminate\Support\Facades\Log;
+
+
 
 class TransitMixerHelper
 {
@@ -15,11 +19,11 @@ class TransitMixerHelper
 
         $tms = TransitMixer::join("group_companies", function ($join) {
             $join->on("group_companies.id", "=", "transit_mixers.group_company_id");
-        })->select('transit_mixers.id',"truck_name", "truck_capacity", "loading_time", "working_hrs_s", "working_hrs_e")
+        })->select('transit_mixers.id', "truck_name", "truck_capacity", "loading_time", "working_hrs_s", "working_hrs_e")
             ->where("group_companies.id", $company_id)
             ->where("transit_mixers.status", ConstantHelper::ACTIVE)
             ->whereIn("transit_mixers.id", $transit_mixer_ids)
-            ->orderBy('transit_mixers.truck_capacity','desc')
+            ->orderBy('transit_mixers.truck_capacity', 'desc')
             ->get();
 
         foreach ($tms as $tm) {
@@ -35,103 +39,111 @@ class TransitMixerHelper
         return $tms_availabilty;
     }
 
-  public static function getAvailableTrucks(
-    $trucks,
-    $truck_cap,
-    Carbon $loading_start,
-    Carbon $return_end,
-    $location_end_time,
-    $restriction_start,
-    $restriction_end,
-    $location = null,
-    $trip = null,
-    $assinedTrucks = [],
-    $slots = [],
-    $order_no = null
-) {
-    $location_end_time = $location_end_time instanceof Carbon ? $location_end_time : Carbon::parse($location_end_time);
-    $min_date = $location_end_time->lte($return_end) ? $location_end_time : $return_end;
+    public static function getAvailableTrucksNew(
+        $trucks,
+        $truck_cap,
+        Carbon $loading_start,
+        Carbon $return_end,
+        $location_end_time,
+        $restriction_start,
+        $restriction_end,
+        $location = null,
+        $trip = null,
+        $assinedTrucks = [],
+        $slots = [],
+        $order_no = null,
+        $quantity = null
+    ) {
+        Log::info('QUantity' . $quantity);
 
-    // restriction window
-    if (isset($restriction_start, $restriction_end)) {
-        $rStart = Carbon::parse($restriction_start);
-        $rEnd   = Carbon::parse($restriction_end);
+        $location_end_time = $location_end_time instanceof Carbon ? $location_end_time : Carbon::parse($location_end_time);
+        $min_date = $location_end_time->lte($return_end) ? $location_end_time : $return_end;
 
-        if ($loading_start->between($rStart, $rEnd) || $min_date->between($rStart, $rEnd)) {
-            return null;
-        }
-    }
+        // restriction window
+        if (isset($restriction_start, $restriction_end)) {
+            $rStart = Carbon::parse($restriction_start);
+            $rEnd = Carbon::parse($restriction_end);
 
-    // busy slots map: truck => intervals
-    $busyByTruck = [];
-    foreach ($slots as $slot) {
-        $tid = $slot['truck_id'] ?? null;
-        if (!$tid) continue;
-
-        $busyByTruck[$tid][] = [
-            'start' => $slot['start'] instanceof Carbon ? $slot['start'] : Carbon::parse($slot['start']),
-            'end'   => $slot['end']   instanceof Carbon ? $slot['end']   : Carbon::parse($slot['end']),
-        ];
-    }
-
-    $best = null;
-
-    foreach ($trucks as $truck_key => $truck) {
-
-        if (!isset($truck['truck_name'], $truck['truck_capacity'])) continue;
-
-        // (Optional) if you still want "assigned trucks only first", you can filter outside
-        // For now we keep it simple: allow all. If you want strict assigned preference tell me.
-
-        if (!empty($truck['location']) && !empty($location) && $truck['location'] != $location) continue;
-
-        // availability windows
-        if (isset($truck['free_from']) && Carbon::parse($truck['free_from'])->gt($loading_start)) continue;
-        if (isset($truck['free_from']) && Carbon::parse($truck['free_from'])->gt($min_date)) continue;
-
-        if (isset($truck['free_upto']) && Carbon::parse($truck['free_upto'])->lt($loading_start)) continue;
-        if (isset($truck['free_upto']) && Carbon::parse($truck['free_upto'])->lt($min_date)) continue;
-
-        $tName = $truck['truck_name'];
-
-        // overlap check for full trip window [loading_start, return_end)
-        $hasOverlap = false;
-        foreach ($busyByTruck[$tName] ?? [] as $iv) {
-            if ($return_end->gt($iv['start']) && $loading_start->lt($iv['end'])) {
-                $hasOverlap = true;
-                break;
-            }
-        }
-        if ($hasOverlap) continue;
-
-        // FIFO waiting gap: use latest end <= loading_start
-        $lastEnd = null;
-        foreach ($busyByTruck[$tName] ?? [] as $iv) {
-            if ($iv['end']->lte($loading_start)) {
-                if ($lastEnd === null || $iv['end']->gt($lastEnd)) {
-                    $lastEnd = $iv['end']->copy();
-                }
+            if ($loading_start->between($rStart, $rEnd) || $min_date->between($rStart, $rEnd)) {
+                return null;
             }
         }
 
-        // If no history, do NOT let it dominate FIFO (set gap = 0)
-        $gap = $lastEnd ? $lastEnd->diffInMinutes($loading_start) : 0;
+        // busy slots map: truck => intervals
+        $busyByTruck = [];
+        foreach ($slots as $slot) {
+            $tid = $slot['truck_id'] ?? null;
+            if (!$tid)
+                continue;
 
-        if (
-            $best === null ||
-            $gap > $best['gap'] ||
-            ($gap === $best['gap'] && strcmp((string)$tName, (string)$best['data']['truck_name']) < 0)
-        ) {
-            $best = [
-                'data' => $truck,
-                'index' => $truck_key,
-                'gap' => $gap,
+            $busyByTruck[$tid][] = [
+                'start' => $slot['start'] instanceof Carbon ? $slot['start'] : Carbon::parse($slot['start']),
+                'end' => $slot['end'] instanceof Carbon ? $slot['end'] : Carbon::parse($slot['end']),
             ];
         }
-    }
 
-    return $best ? ['data' => $best['data'], 'index' => $best['index']] : null;
-}
+        $best = null;
+
+        foreach ($trucks as $truck_key => $truck) {
+
+            if (!isset($truck['truck_name'], $truck['truck_capacity']))
+                continue;
+
+            // (Optional) if you still want "assigned trucks only first", you can filter outside
+            // For now we keep it simple: allow all. If you want strict assigned preference tell me.
+
+            if (!empty($truck['location']) && !empty($location) && $truck['location'] != $location)
+                continue;
+
+            // availability windows
+            if (isset($truck['free_from']) && Carbon::parse($truck['free_from'])->gte($loading_start))
+                continue;
+            if (isset($truck['free_from']) && Carbon::parse($truck['free_from'])->gte($min_date))
+                continue;
+
+            if (isset($truck['free_upto']) && Carbon::parse($truck['free_upto'])->lte($loading_start))
+                continue;
+            if (isset($truck['free_upto']) && Carbon::parse($truck['free_upto'])->lte($min_date))
+                continue;
+
+            $tName = $truck['truck_name'];
+
+            // overlap check for full trip window [loading_start, return_end)
+            $hasOverlap = false;
+            foreach ($busyByTruck[$tName] ?? [] as $iv) {
+                if ($return_end->gte($iv['start']) && $loading_start->lte($iv['end'])) {
+                    $hasOverlap = true;
+                    break;
+                }
+            }
+            if ($hasOverlap)
+                continue;
+
+            $eliglibleTruck[] = $truck;
+        }
+        $requiredQty = min($quantity, max(array_column($trucks, 'truck_capacity')));
+
+        $optimalCapacity = ScheduleService::getOptimalTruckCapacity(
+            $trucks,
+            $requiredQty
+        );
+
+        $eligibleTrucks = array_filter($eliglibleTruck, function ($truck) use ($optimalCapacity) {
+            return $truck['truck_capacity'] == $optimalCapacity;
+        });
+
+        $eligibleTrucks = array_values($eligibleTrucks);
+
+        if (!empty($eligibleTrucks)) {
+
+            return [
+                'data' => $eligibleTrucks[0],
+                'index' => 0
+            ];
+        }
+
+        return null;
+    }
 
 
     public function getTrucksLocationAvailability($trucks, $location)
@@ -157,5 +169,197 @@ class TransitMixerHelper
         }
 
         return $availablity;
+    }
+    public static function getAvailableTrucks(
+        $trucks,
+        $truck_cap,
+        $loading_start,
+        $return_end,
+        $location_end_time,
+        $restriction_start,
+        $restriction_end,
+        $location = null,
+        $trip = null,
+        $assinedTrucks = [],
+        $slots = [],
+        $order_no = null,
+        $quantity = null
+    ) {
+
+        $data = null;
+        $index = null;
+
+        $loading_start = Carbon::parse($loading_start);
+        $return_end = Carbon::parse($return_end);
+        $location_end_time = Carbon::parse($location_end_time);
+
+        $min_date = $location_end_time->lte($return_end) ? $location_end_time : $return_end;
+
+        /*
+        --------------------------------
+        RESTRICTION CHECK
+        --------------------------------
+        */
+
+        if ($restriction_start && $restriction_end) {
+
+            $rStart = Carbon::parse($restriction_start);
+            $rEnd = Carbon::parse($restriction_end);
+
+            if (
+                $loading_start->between($rStart, $rEnd) ||
+                $min_date->between($rStart, $rEnd)
+            ) {
+                return null;
+            }
+        }
+
+        /*
+        --------------------------------
+        BUILD BUSY SLOTS MAP
+        --------------------------------
+        */
+
+        $busyByTruck = [];
+
+        foreach ($slots as $slot) {
+
+            $truckId = $slot['truck_id'] ?? null;
+            if (!$truckId)
+                continue;
+
+            $busyByTruck[$truckId][] = [
+                'start' => Carbon::parse($slot['start']),
+                'end' => Carbon::parse($slot['end'])
+            ];
+        }
+
+        /*
+        --------------------------------
+        COMMON AVAILABILITY CHECK
+        --------------------------------
+        */
+
+        $isTruckAvailable = function ($truck) use ($loading_start, $return_end, $min_date, $location, $busyByTruck) {
+
+            if (!isset($truck['truck_capacity']))
+                return false;
+
+            if ($truck['location'] && $location && $truck['location'] != $location) {
+                return false;
+            }
+
+            if (Carbon::parse($truck['free_from'])->gte($loading_start))
+                return false;
+
+            if (Carbon::parse($truck['free_from'])->gte($min_date))
+                return false;
+
+            if (Carbon::parse($truck['free_upto'])->lte($loading_start))
+                return false;
+
+            if (Carbon::parse($truck['free_upto'])->lte($min_date))
+                return false;
+
+            /*
+            SLOT OVERLAP CHECK
+            */
+
+            $truckName = $truck['truck_name'];
+
+            foreach ($busyByTruck[$truckName] ?? [] as $slot) {
+
+                if ($return_end->gte($slot['start']) && $loading_start->lte($slot['end'])) {
+                    return false;
+                }
+            }
+
+            return true;
+        };
+
+        /*
+        --------------------------------
+        1️⃣ ASSIGNED TRUCKS FIRST
+        --------------------------------
+        */
+
+        foreach ($trucks as $truck_key => $truck) {
+
+            if (!in_array($truck['truck_name'], $assinedTrucks))
+                continue;
+
+            if ($truck_cap && $truck['truck_capacity'] != $truck_cap)
+                continue;
+
+            if (!$isTruckAvailable($truck))
+                continue;
+
+            $data = $truck;
+            $index = $truck_key;
+            break;
+        }
+
+        /*
+        --------------------------------
+        2️⃣ CAPACITY OPTIMIZATION
+        --------------------------------
+        */
+
+        if ($truck_cap == null && $quantity != null) {
+
+            $requiredQty = min($quantity, max(array_column($trucks, 'truck_capacity')));
+
+            $truck_cap = ScheduleService::getOptimalTruckCapacity(
+                $trucks,
+                $requiredQty
+            );
+        }
+
+        /*
+        --------------------------------
+        3️⃣ SAME CAPACITY TRUCK
+        --------------------------------
+        */
+
+        if (!$data) {
+
+            foreach ($trucks as $truck_key => $truck) {
+
+                if ($truck['truck_capacity'] != $truck_cap)
+                    continue;
+
+                if (!$isTruckAvailable($truck))
+                    continue;
+
+                $data = $truck;
+                $index = $truck_key;
+                break;
+            }
+        }
+
+        /*
+        --------------------------------
+        4️⃣ ANY AVAILABLE TRUCK
+        --------------------------------
+        */
+
+        if (!$data) {
+
+            foreach ($trucks as $truck_key => $truck) {
+
+                if ($truck_cap && $truck['truck_capacity'] > $quantity)
+                    continue;
+
+                if (!$isTruckAvailable($truck))
+                    continue;
+
+
+                $data = $truck;
+                $index = $truck_key;
+                break;
+            }
+        }
+
+        return $data ? ['data' => $data, 'index' => $index] : null;
     }
 }

@@ -9,7 +9,7 @@ class SelectedOrderSchedule extends Model
 {
     use HasFactory;
 
-    protected $fillable = [];
+    protected $guarded = [];
 
     protected $hidden = ['deleted_at'];
 
@@ -42,7 +42,7 @@ class SelectedOrderSchedule extends Model
     {
         return $this->belongsTo(SelectedOrder::class, 'order_id');
     }
-    public function pump()
+    public function pump_assign()
     {
         return $this->hasOne(
             SelectedOrderPumpSchedule::class,
@@ -50,4 +50,6 @@ class SelectedOrderSchedule extends Model
             'order_id'
         )->where('pouring_start', $this->pouring_start);
     }
+   
+
 }

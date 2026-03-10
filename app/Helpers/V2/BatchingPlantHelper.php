@@ -78,9 +78,9 @@ class BatchingPlantHelper
         foreach ($availability as $key => $item) {
             $freeFrom = Carbon::parse($item['free_from']);
             $freeUpto = Carbon::parse($item['free_upto']);
-            if ($freeUpto->gt($freeFrom) && $freeUpto->diffInMinutes($freeFrom) >= $loading_time) {
+            if ($freeUpto->gte($freeFrom) && $freeUpto->diffInMinutes($freeFrom) >= $loading_time) {
                 if (!(isset($restriction_start) && isset($restriction_end) && $freeFrom->between($restriction_start, $restriction_end))) {
-                    if ($freeFrom->lt(Carbon::parse($minValue))) {
+                    if ($freeFrom->lte(Carbon::parse($minValue))) {
                         $minValue = $freeFrom;
                         $bp = $item;
                         $bpIndex = $key;
@@ -105,7 +105,8 @@ class BatchingPlantHelper
         $trip,
         $assignedPlants,
         $orderNo,
-        array &$slots = []   // ✅ pass-by-ref slots
+        array &$slots = [] ,
+        $plant_name=null  // ✅ pass-by-ref slots
     ) {
         // Restriction window
         // if (isset($restriction_start) && isset($restriction_end)) {
@@ -144,7 +145,7 @@ class BatchingPlantHelper
             $freeUpto = Carbon::parse($plant['free_upto']);
 
             // availability must cover [startNeed..endNeed]
-            if ($freeFrom->gt($startNeed) || $freeUpto->lt($endNeed)) {
+            if ($freeFrom->gte($startNeed) || $freeUpto->lte($endNeed)) {
                 return [false, $freeFrom, $freeUpto];
             }
 
@@ -219,10 +220,30 @@ class BatchingPlantHelper
             }
             return strcmp($a['score_name'], $b['score_name']);
         });
+        if ($plant_name) {
+            $targetPlant = $plant_name; // plant you want to allow
 
+            $candidates = array_filter($candidates, function ($candidate) use ($targetPlant) {
+                return $candidate['data']['plant_name'] === $targetPlant;
+            });
+
+            if (empty($candidates)) {
+                return null;
+            }
+
+            usort($candidates, function ($a, $b) {
+                if ($a['score_free_from'] !== $b['score_free_from']) {
+                    return $a['score_free_from'] <=> $b['score_free_from'];
+                }
+                if ($a['score_idle_gap'] !== $b['score_idle_gap']) {
+                    return $a['score_idle_gap'] <=> $b['score_idle_gap'];
+                }
+                return strcmp($a['score_name'], $b['score_name']);
+            });
+        }
         $winner = $candidates[0]['data'];
 
-     
+
 
 
         return [
@@ -255,12 +276,12 @@ class BatchingPlantHelper
                 continue;
             }
 
-            if (Carbon::parse($batching_plant['free_from'])->gt(Carbon::parse($loading_start))) {
+            if (Carbon::parse($batching_plant['free_from'])->gte(Carbon::parse($loading_start))) {
                 continue;
             }
 
 
-            if (Carbon::parse($batching_plant['free_upto'])->lt(Carbon::parse($loading_end))) {
+            if (Carbon::parse($batching_plant['free_upto'])->lte(Carbon::parse($loading_end))) {
                 continue;
             }
 

@@ -197,7 +197,6 @@ class ScheduleService
             $conflicts = ScheduleService::validateAllResourceConflicts($scheduleData);
             Log::info('Conflict before optimize:', $conflicts);
             $this->optimizeSchedules($scheduleData);
-            self::updateQcFromPreviousSlot();
             $conflicts = ScheduleService::validateAllResourceConflicts($scheduleData);
             Log::info('After optmize Schedule Conflicts:', $conflicts);
         } catch (\Exception $e) {
@@ -224,8 +223,8 @@ class ScheduleService
             $orders = $this->fetchOrders($scheduleData);
             //Log::info("Total Orders: " . count($orders));
             foreach ($orders as $orderKey => $order) {
-                $this->scheduleOrder($scheduleData, $order, $orderKey);
-
+                $this->scheduleOrder($scheduleData,$order,$orderKey);
+              
             }
         } catch (\Exception $ex) {
             if (!$scheduleData->is_completed && !$scheduleData->failure_reason) {
@@ -1131,14 +1130,13 @@ class ScheduleService
             }
             $pump = $scheduleData->pouring_pump['pump'];
             $pumpIndex = $scheduleData->pouring_pump['index'];
-            $waiting = $scheduleData->pouring_pump['waiting'] ?? 0;
             $pumpName = $pump['pump_name'];
             $pumpId = $pump['pump_id'];
             $installTime = (int) ($pump['installation_time'] ?? 10);
             $qcTime = isset($scheduleData->pouring_pump['qc_time']) ? $scheduleData->pouring_pump['qc_time'] : $first['qc_time'];
             $travelTime = isset($scheduleData->pouring_pump['travel_time']) ? $scheduleData->pouring_pump['travel_time'] : $order->travel_to_site;
             $returnTime = isset($scheduleData->pouring_pump['return_time']) ? $scheduleData->pouring_pump['return_time'] : $order->return_to_plant;
-            $waitingTime = $first['qc_time'] + $first['insp_time'] + $first['travel_time'] + $first['loading_time'] + 3 + $waiting;
+            $waitingTime = $first['qc_time'] + $first['insp_time'] + $first['travel_time'] + $first['loading_time'] + 3;
             $totalTime = $installTime +
                 (int) $qcTime +
                 (int) $first['insp_time'] +
@@ -1163,14 +1161,6 @@ class ScheduleService
             $cleanEnd = $cleanStart->copy()->addMinutes((int) $scheduleData->cleaning_time);
             $returnStart = $cleanEnd->copy()->addMinute();
             $returnEnd = $returnStart->copy()->addMinutes($returnTime);
-            if ($waiting) {
-                Log::info("Update Current Slot Waiting " . $waiting);
-                $inspStart = $inspStart->copy()->subMinutes($waiting);
-                $inspEnd = $inspEnd->copy()->subMinutes($waiting);
-                $installStart = $installStart->copy()->subMinutes($waiting);
-                $installEnd = $installEnd->copy()->subMinutes($waiting);
-
-            }
             $pump = Pump::find($pumpId);
             $scheduleData->pump_busy_slots[] = [
                 'start' => $start->copy(),
@@ -1182,8 +1172,6 @@ class ScheduleService
                 'order_no' => $order->order_no,
                 'pouring_start' => $groupPourStart->copy(),
                 'install_time' => $pump->installation_time,
-                'interval' => $order->interval,
-                'waiting' => $scheduleData->pouring_pump['waiting'] ?? 0
             ];
             $trip = 0;
             $scheduleData->selected_order_pump_schedules[$pumpName] = [
@@ -1500,103 +1488,42 @@ class ScheduleService
 
         return false;
     }
-    private function scheduleOrder($scheduleData, $order, $orderKey, $strict = false)
-    {
+    private function scheduleOrder($scheduleData,$order,$orderKey,$strict=false){
         $scheduleData->interval = 1;
-        //Log::info("Processing Order: " . $order->order_no);
-        $orderSchedule = clone $scheduleData;
-        $orderSchedule->is_completed = false;
-        $orderSchedule->delivered_quantity = 0;
-        $isAvaiable = $this->resourceCheck($order, $orderSchedule, $scheduleData, $orderKey);
-        if (!$isAvaiable && $strict)
-            return false;
+                //Log::info("Processing Order: " . $order->order_no);
+                $orderSchedule = clone $scheduleData;
+                $orderSchedule->is_completed = false;
+                $orderSchedule->delivered_quantity = 0;
+                $isAvaiable = $this->resourceCheck($order, $orderSchedule, $scheduleData, $orderKey);
+                if (!$isAvaiable && $strict)
+                    return false;
 
-        $this->processOrder($order, $orderSchedule, $scheduleData, $orderKey);
-
-        if (isset($orderSchedule->lastResponse) && $orderSchedule->lastResponse['last_trip'] > $orderSchedule->trip) {
-            $orderSchedule = clone $orderSchedule->lastResponse['data'];
-        }
-        if (empty($orderSchedule->schedules)) {
-            if (!$orderSchedule->failure_reason) {
-                $orderSchedule->failure_reason = "Unable to schedule (unknown reason)";
-            }
-            DB::table('selected_orders')
-                ->where('id', $order->id)
-                ->update([
-                    'failure_reason' => $orderSchedule->failure_reason
-                ]);
-        }
-        $this->storeSchedules($order, $orderSchedule);
-        $scheduleData->tms_availability = $orderSchedule->tms_availability;
-        $scheduleData->pumps_availability = $orderSchedule->pumps_availability;
-        $scheduleData->pump_busy_slots = $orderSchedule->pump_busy_slots;
-        $scheduleData->truck_busy_slots = $orderSchedule->truck_busy_slots;
-        $scheduleData->plant_busy_slots = $orderSchedule->plant_busy_slots;
-        $scheduleData->bps_availability = $orderSchedule->bps_availability;
-        $scheduleData->assigned_pumps = $orderSchedule->assigned_pumps;
-        $scheduleData->assigned_plants = $orderSchedule->assigned_plants;
-        $scheduleData->assigned_tms = $orderSchedule->assigned_tms;
-        $scheduleData->failure_reason = null;
-        return true;
+                $this->processOrder($order, $orderSchedule, $scheduleData, $orderKey);
+                
+                if (isset($orderSchedule->lastResponse) && $orderSchedule->lastResponse['last_trip'] > $orderSchedule->trip) {
+                    $orderSchedule = clone $orderSchedule->lastResponse['data'];
+                }
+                if (empty($orderSchedule->schedules)) {
+                    if (!$orderSchedule->failure_reason) {
+                        $orderSchedule->failure_reason = "Unable to schedule (unknown reason)";
+                    }
+                    DB::table('selected_orders')
+                        ->where('id', $order->id)
+                        ->update([
+                            'failure_reason' => $orderSchedule->failure_reason
+                        ]);
+                }
+                $this->storeSchedules($order, $orderSchedule);
+                $scheduleData->tms_availability = $orderSchedule->tms_availability;
+                $scheduleData->pumps_availability = $orderSchedule->pumps_availability;
+                $scheduleData->pump_busy_slots = $orderSchedule->pump_busy_slots;
+                $scheduleData->truck_busy_slots = $orderSchedule->truck_busy_slots;
+                $scheduleData->plant_busy_slots = $orderSchedule->plant_busy_slots;
+                $scheduleData->bps_availability = $orderSchedule->bps_availability;
+                $scheduleData->assigned_pumps = $orderSchedule->assigned_pumps;
+                $scheduleData->assigned_plants = $orderSchedule->assigned_plants;
+                $scheduleData->assigned_tms = $orderSchedule->assigned_tms;
+                $scheduleData->failure_reason = null;
+                return true;
     }
-    public static function updateQcFromPreviousSlot()
-    {
-        // Fetch all slots where qc_time is 0
-        $slots = SelectedOrderPumpSchedule::where('qc_time', 0)
-            ->orderBy('pouring_start') // order by pouring_start to make previous slot logic easy
-            ->get();
-
-        foreach ($slots as $slot) {
-            // Find the nearest previous slot on the same pump
-            $previousSlot = SelectedOrderPumpSchedule::where('pump', $slot->pump)
-                ->where('pouring_start', '<', $slot->pouring_start)
-                ->orderByDesc('pouring_start')
-                ->first();
-
-            if (!$previousSlot) {
-                // No previous slot exists for this pump
-                continue;
-            }
-
-            $qcStart = Carbon::parse($previousSlot->return_end)->copy()->addMinute();
-            $qcEnd = $qcStart->copy();
-
-            $travelStart = $qcStart->copy();
-            $travelEnd = $qcStart->copy();
-
-            $inspStart = $qcStart->copy();
-            $inspEnd = $inspStart->copy()->addMinutes($previousSlot->insp_time); // default 5 min if 0
-
-            $installStart = $inspEnd->copy()->addMinute();
-            $installEnd = $installStart->copy()->addMinutes($slot->install_time); // default 5 min if 0
-
-            $waitingStart = $installEnd->copy()->addMinute();
-            $waitingEnd = Carbon::parse($slot->waiting_end);
-
-            $waitingMinutes = $waitingStart->diffInMinutes($waitingEnd);
-            $waitingMinutes = max($waitingMinutes, 0); // ensure not negative
-
-            // Update current slot
-            $slot->update([
-                'qc_start' => $qcStart->format('Y-m-d H:i:s'),
-                'qc_end' => $qcEnd->format('Y-m-d H:i:s'),
-                'travel_start' => $travelStart->format('Y-m-d H:i:s'),
-                'travel_end' => $travelEnd->format('Y-m-d H:i:s'),
-                'insp_start' => $inspStart->format('Y-m-d H:i:s'),
-                'insp_end' => $inspEnd->format('Y-m-d H:i:s'),
-                'install_start' => $installStart->format('Y-m-d H:i:s'),
-                'install_end' => $installEnd->format('Y-m-d H:i:s'),
-                'waiting_start' => $waitingStart->format('Y-m-d H:i:s'),
-                'waiting_end' => $waitingEnd->format('Y-m-d H:i:s'),
-                'waiting_time' => $waitingMinutes,
-            ]);
-
-            Log::info("QC updated for order {$slot->order_no} on pump {$slot->pump}", [
-                'previous_return_end' => $previousSlot->return_end,
-                'qc_start' => $qcStart->format('Y-m-d H:i:s'),
-                'qc_end' => $qcEnd->format('Y-m-d H:i:s'),
-            ]);
-        }
-    }
-
 }
