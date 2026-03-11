@@ -250,7 +250,7 @@ class PumpHelper
                         $existingStart = Carbon::parse($slot['start']);
                         $existingEnd = Carbon::parse($slot['end']);
 
-                        return $pump_start_time->lt($existingEnd) && $pump_end_time->gt($existingStart);
+                        return $pump_start_time->lt($existingEnd) || $pump_end_time->gt($existingStart);
                     });
                 if (!$overlapSlot)
                     return null;
@@ -457,7 +457,7 @@ class PumpHelper
    public static function getSlotsDiff($previousSlot, $nextSlot, $start, $end, $interval, $pumpData, $order, $qc, $travel)
     {
         $result = [];
-        $interval = 60;
+        $interval = 100;
 
 
         Log::info('Checking slot gaps', [
@@ -528,7 +528,7 @@ class PumpHelper
                 ->where('pouring_start', $nextSlot['pouring_start'])
                 ->first();
             $nextSlotInterval = $nextSlot['interval'];
-            $nextSlotInterval = 60;
+            $nextSlotInterval = 100;
             $currentReturnEnd = Carbon::parse($end);
             $nextInspStart = Carbon::parse($nextData->insp_start);
 
