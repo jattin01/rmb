@@ -1,5 +1,6 @@
 <?php
 namespace App\Lib\Services;
+use Illuminate\Support\Facades\File;
 use App\Helpers\ConstantHelper;
 use App\Helpers\V2\BatchingPlantHelper;
 use App\Helpers\V2\PumpHelper;
@@ -17,7 +18,6 @@ use App\Models\ProductType;
 use App\Models\SelectedOrderPumpSchedule;
 use App\Models\SelectedOrderSchedule;
 use App\Models\OrderTempControl;
-use Illuminate\Support\Facades\File;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Http;
@@ -191,7 +191,6 @@ class ScheduleService
                 'truck_busy_slots' => [],
                 'plant_busy_slots' => [],
             ]);
-            File::delete(storage_path('logs/laravel.log'));
             $this->generateSchedule($scheduleData);
             $conflicts = ScheduleService::validateAllResourceConflicts($scheduleData);
             Log::info('Schedule Conflicts:', $conflicts);
@@ -222,9 +221,10 @@ class ScheduleService
     public function generateSchedule(ScheduleData &$scheduleData)
     {
         try {
+            File::delete(storage_path('logs/laravel.log'));
             $this->initializeVariables($scheduleData);
             $orders = $this->fetchOrders($scheduleData);
-           Log::info("Total Orders: " . count($orders));
+            Log::info("Total Orders: " . count($orders));
             foreach ($orders as $orderKey => $order) {
                 $this->scheduleOrder($scheduleData, $order, $orderKey);
 
@@ -260,8 +260,8 @@ class ScheduleService
             $interval = $scheduleData->interval;
             $scheduleData = clone $generatedScheduleData;
             $scheduleData->interval = $interval;
-           Log::info("\nOrder No: {$order->order_no}");
-           Log::info("Interval Step / Adjustment: " . $scheduleData->interval);
+            Log::info("\nOrder No: {$order->order_no}");
+            Log::info("Interval Step / Adjustment: " . $scheduleData->interval);
             $scheduleData->order_start = Carbon::parse($order->delivery_date);
             $scheduleData->delivery_time = Carbon::parse($order->delivery_date);
             $scheduleData->order_no = $order->order_no;
@@ -320,10 +320,10 @@ class ScheduleService
             if ($scheduleData->loading_start->lt($scheduleData->shift_start)) {
                 $scheduleData->shift_end_exit = 2;
             }
-           Log::info("--TRIP--" . $trip . "--LS -" . $scheduleData->loading_start .      "--LE--" . $scheduleData->loading_end . "--DT--" . $scheduleData->delivery_time);
+            Log::info("--TRIP--" . $trip . "--LS -" . $scheduleData->loading_start .      "--LE--" . $scheduleData->loading_end . "--DT--" . $scheduleData->delivery_time);
             $this->assignResources($order, $scheduleData, $location, $trip);
             if ($this->allResourcesAssigned($scheduleData)) {
-               Log::info("All Resources Assigned for Trip:  $trip -- order($orderKey)-" . $order->order_no . '--qty--' . $quantity . ' -phase-' . $scheduleData->phase . '-LS-' . $scheduleData->loading_start);
+                Log::info("All Resources Assigned for Trip:  $trip -- order($orderKey)-" . $order->order_no . '--qty--' . $quantity . ' -phase-' . $scheduleData->phase . '-LS-' . $scheduleData->loading_start);
                 $scheduleData->batching_qty = min($scheduleData->transit_mixer['data']['truck_capacity'], $quantity);
                 $scheduleData->next_qty = $quantity - $scheduleData->batching_qty;
                 $scheduleData->phase_seq++;
@@ -334,7 +334,7 @@ class ScheduleService
                 $scheduleData->trip = $trip;
                 $scheduleData->current_interval = 1;
             } else {
-               Log::info("Resource Not Found: " . $trip . '-- order-' . $order->order_no . ' -phase-' . $scheduleData->phase . '-LS-' . $scheduleData->loading_start . '-- shift end-' . $scheduleData->shift_end_exit);
+                Log::info("Resource Not Found: " . $trip . '-- order-' . $order->order_no . ' -phase-' . $scheduleData->phase . '-LS-' . $scheduleData->loading_start . '-- shift end-' . $scheduleData->shift_end_exit);
                 $scheduleData->failure_reason = "Resources unavailable (Plant or Truck) for" . $order->order_no;
                 if ($scheduleData->current_interval <= $scheduleData->order_interval) {
                     $scheduleData->current_interval++;
@@ -380,7 +380,7 @@ class ScheduleService
                         continue;
                     }
                     if ($trip > 1 && ($scheduleData->pump_qty && $scheduleData->pump_qty > 0) && empty($scheduleData->pouring_pump)) {
-                       Log::info(" if trip not flexible 1 if GT 1 Resource Not Found: " . $trip . '-- order-' . $order->order_no . ' -phase-' . $scheduleData->phase . '-LS-' . $scheduleData->loading_start . '-- shift end-' . $scheduleData->shift_end_exit . '-CI-' . $scheduleData->current_interval);
+                        Log::info(" if trip not flexible 1 if GT 1 Resource Not Found: " . $trip . '-- order-' . $order->order_no . ' -phase-' . $scheduleData->phase . '-LS-' . $scheduleData->loading_start . '-- shift end-' . $scheduleData->shift_end_exit . '-CI-' . $scheduleData->current_interval);
                         $allotedPumpsQty = max($scheduleData->pump_qty, count($scheduleData->assigned_pumps));
                         $pouringTime = round(($order->pouring_time / 8) * $scheduleData->batching_qty);
                         $pouring_interval = $scheduleData->current_interval + $pouringTime;
@@ -671,14 +671,13 @@ class ScheduleService
                 'plant_id' => $scheduleData->batching_plant['data']['plant_name'],
                 'order_no' => $scheduleData->order_no
             ];
-           Log::info("Batching Plant Assigned: " . $trip . "--" . $scheduleData->batching_plant['data']['plant_name'] . "From: " . $scheduleData->loading_start . " To:" . $scheduleData->loading_end);
+            Log::info("Batching Plant Assigned: " . $trip . "--" . $scheduleData->batching_plant['data']['plant_name'] . "From: " . $scheduleData->loading_start . " To:" . $scheduleData->loading_end);
         } else {
-           Log::info("Batching Plant Not found: " . $trip . "--" . "From: " . $scheduleData->loading_start . " To:" . $scheduleData->loading_end);
+            Log::info("Batching Plant Not found: " . $trip . "--" . "From: " . $scheduleData->loading_start . " To:" . $scheduleData->loading_end);
         }
     }
     private function assignTransitMixer(ScheduleData &$scheduleData, $location, $trip)
     {
-         if (isset($scheduleData->batching_plant['data']['plant_name'])){
         $slots = $scheduleData->truck_busy_slots;
         $scheduleData->transit_mixer = TransitMixerHelper::getAvailableTrucks(
             $scheduleData->tms_availability,
@@ -703,14 +702,13 @@ class ScheduleService
                 'order_no' => $scheduleData->order_no,
                 'cap' => $scheduleData->transit_mixer['data']['truck_capacity'],
             ];
-            
         } else {
             $reason = 'Transit Mixer Not Found for Order' . $scheduleData->order_no;
             if (isset($scheduleData->batching_plant['data']['plant_name'])) {
                 BatchingPlantAvailability::create(['group_company_id' => $scheduleData->company, 'location' => $scheduleData->location, 'plant_name' => $scheduleData->batching_plant['data']['plant_name'], 'plant_capacity' => 0, 'free_from' => $scheduleData->loading_start, 'free_upto' => $scheduleData->loading_start, 'user_id' => $scheduleData->user_id, 'reason' => $reason]);
             }
-           Log::info("Transit Mixer Not Found for Order: " . $trip);
-        }}
+            Log::info("Transit Mixer Not Found for Order: " . $trip);
+        }
     }
     private function allResourcesAssigned(ScheduleData &$scheduleData)
     {
@@ -955,10 +953,8 @@ class ScheduleService
                         : null;
 
                     if ($prevPumpEnd) {
-                      //Log::info("Previous pump return end time: " . $prevPumpEnd->format('Y-m-d H:i:s'));
-                    } else {
-                      //Log::info("No previous pump found, so no return end time.");
-                    }
+                        Log::info("Previous pump return end time: " . $prevPumpEnd->format('Y-m-d H:i:s'));
+                    } 
 
 
 
@@ -1080,7 +1076,7 @@ class ScheduleService
             $numberOfTrips = count($pumpTrips);
             $batchingTrips[$pumpIndex] = $numberOfTrips;
         }
-      //Log::info("Order no " . $order->order_no . " Required pumps " . $pumpsRequired);
+        Log::info("Order no " . $order->order_no . " Required pumps " . $pumpsRequired);
         for ($p = 0; $p < $pumpsRequired; $p++) {
 
             $first = $trips[0];
@@ -1139,12 +1135,12 @@ class ScheduleService
             );
 
             $scheduleData->pouring_pump = $siteToSite === null ? $NewPump : $siteToSite;
-            // if ($siteToSite === null)
-            //   //Log::info("pick pump New order " . $order->order_no);
-            // else
-            //   //Log::info("pick pump Site to Site " . $order->order_no);
+            if ($siteToSite === null)
+                Log::info("pick pump New order " . $order->order_no);
+            else
+                Log::info("pick pump Site to Site " . $order->order_no);
             if (!isset($scheduleData->pouring_pump['pump']['pump_name'])) {
-              Log::warning("Pump not found for order {$order->order_no} pumpSeq {$pumpSeq}");
+                Log::warning("Pump not found for order {$order->order_no} pumpSeq {$pumpSeq}");
                 continue;
             }
             $pump = $scheduleData->pouring_pump['pump'];
@@ -1165,7 +1161,7 @@ class ScheduleService
                 ($qcTime > 0 ? 1 : 0) +
                 ($travelTime > 0 ? 1 : 0) +
                 ($first['insp_time'] > 0 ? 1 : 0));
-           //Log::info("Pump Time Calculation", [
+            // Log::info("Pump Time Calculation", [
             //     'pump_loading_time' => $groupPumpLoadingTime->format('Y-m-d H:i:s'),
             //     'install_time' => $installTime,
             //     'qc_time' => $qcTime,
@@ -1180,7 +1176,7 @@ class ScheduleService
             //     'total_minutes_subtracted' => $totalTime
             // ]);
             $start = $groupPumpLoadingTime->copy()->subMinutes($totalTime);
-          //Log::info("assign pump start time " . $start->copy()->format('Y-m-d H:i:s'));
+            //Log::info("assign pump start time " . $start->copy()->format('Y-m-d H:i:s'));
 
             $qcStart = $start->copy();
             $qcEnd = $qcTime !== 0 ? $qcStart->copy()->addMinutes($qcTime) : $start->copy();
@@ -1198,7 +1194,7 @@ class ScheduleService
             $returnStart = $cleanEnd->copy()->addMinute();
             $returnEnd = $returnStart->copy()->addMinutes($returnTime);
             if ($waiting) {
-              //Log::info("Update Current Slot Waiting " . $waiting);
+                Log::info("Update Current Slot Waiting " . $waiting);
                 $inspStart = $inspStart->copy()->subMinutes($waiting);
                 $inspEnd = $inspEnd->copy()->subMinutes($waiting);
                 $installStart = $installStart->copy()->subMinutes($waiting);
@@ -1310,7 +1306,7 @@ class ScheduleService
         ) {
             $seconds = $data['rows'][0]['elements'][0]['duration']['value'];
             $minutes = ceil($seconds / 60);
-          //Log::info("travel site to site minutes " . $minutes);
+            Log::info("travel site to site minutes " . $minutes);
             return $minutes;
         }
         return 0;
@@ -1539,13 +1535,13 @@ class ScheduleService
     private function scheduleOrder($scheduleData, $order, $orderKey, $strict = false)
     {
         $scheduleData->interval = 1;
-       Log::info("Processing Order: " . $order->order_no);
+        Log::info("Processing Order: " . $order->order_no);
         $orderSchedule = clone $scheduleData;
         $orderSchedule->is_completed = false;
         $orderSchedule->delivered_quantity = 0;
-        $isAvaiable = $this->resourceCheck($order, $orderSchedule, $scheduleData, $orderKey);
-        if (!$isAvaiable && $strict)
-            return false;
+        // $isAvaiable = $this->resourceCheck($order, $orderSchedule, $scheduleData, $orderKey);
+        // if (!$isAvaiable && $strict)
+        //     return false;
 
         $this->processOrder($order, $orderSchedule, $scheduleData, $orderKey);
 
@@ -1627,11 +1623,11 @@ class ScheduleService
                 'waiting_time' => $waitingMinutes,
             ]);
 
-            //Log::info("QC updated for order {$slot->order_no} on pump {$slot->pump}", [
-            //     'previous_return_end' => $previousSlot->return_end,
-            //     'qc_start' => $qcStart->format('Y-m-d H:i:s'),
-            //     'qc_end' => $qcEnd->format('Y-m-d H:i:s'),
-            // ]);
+            Log::info("QC updated for order {$slot->order_no} on pump {$slot->pump}", [
+                'previous_return_end' => $previousSlot->return_end,
+                'qc_start' => $qcStart->format('Y-m-d H:i:s'),
+                'qc_end' => $qcEnd->format('Y-m-d H:i:s'),
+            ]);
         }
     }
 
