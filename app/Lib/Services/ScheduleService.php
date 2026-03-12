@@ -151,7 +151,7 @@ class ScheduleService
         int $interval_deviation
     ) {
         try {
-            $shift_end = Carbon::parse($shift_end)->format(ConstantHelper::SQL_DATE_TIME);
+             $shift_end = Carbon::parse($shift_end)->addDay()->format(ConstantHelper::SQL_DATE_TIME);
             $this->clearPreviousSchedules($company, $user_id, $shift_start, $shift_end);
             $tmsAvailability = $this->transitMixerHelper->getTrucksAvailability($company, $schedule_date, $transit_mixer_ids);
             $scheduleData = new ScheduleData([
@@ -307,7 +307,7 @@ class ScheduleService
             $scheduleData->early_trip = $scheduleData->late_trip = $scheduleData->order_start;
             $this->resetOrderVariables($scheduleData, $order);
             $this->processTrips($order, $scheduleData, $generatedScheduleData, $location, $orderKey);
-            if ($scheduleData->is_completed) {
+            if (!empty($scheduleData->schedules)) {
 
                 if ($order->pump && (int) $order->pump_qty > 0) {
 
@@ -496,17 +496,16 @@ class ScheduleService
             }
             if ($scheduleData->loading_start->gt($scheduleData->shift_end)) {
                 $scheduleData->shift_end_exit = 2;
-                $scheduleData->failure_reason = "Exceeded shift end time";
-                //$scheduleData->is_completed = 0;
-                $scheduleData->schedules = []; // clear all generated trips
-                break;
+                // $scheduleData->failure_reason = "Exceeded shift end time";
+                // //$scheduleData->is_completed = 0;
+                // //$scheduleData->schedules = []; // clear all generated trips
+                // break;
             }
             if ($scheduleData->loading_start->lt($scheduleData->shift_start)) {
                 $scheduleData->shift_end_exit = 2;
-                $scheduleData->failure_reason = "Before shift start time";
-                //$scheduleData->is_completed = 0;
-                $scheduleData->schedules = []; // clear all generated trips
-                break;
+                // $scheduleData->failure_reason = "Before shift start time";
+                // $scheduleData->schedules = []; // clear all generated trips
+                // break;
             }
 
             Log::info("--TRIP--" . $trip . "--LS -" . $scheduleData->loading_start .
@@ -664,14 +663,14 @@ class ScheduleService
         if ($nextDeliveryDate) {
             $scheduleData->delivery_time = Carbon::parse($nextDeliveryDate);
         }
-        if (
-            $scheduleData->delivery_time->toDateString()
-            !== Carbon::parse($scheduleData->schedule_date)->toDateString()
-        ) {
-            $scheduleData->shift_end_exit = 5;
-            $scheduleData->failure_reason = "Exceeded schedule date boundary";
-            return;
-        }
+        // if (
+        //     $scheduleData->delivery_time->toDateString()
+        //     !== Carbon::parse($scheduleData->schedule_date)->toDateString()
+        // ) {
+        //     $scheduleData->shift_end_exit = 5;
+        //     $scheduleData->failure_reason = "Exceeded schedule date boundary";
+        //     return;
+        // }
         $scheduleData->loading_start = $scheduleData->delivery_time->copy()->subMinutes($scheduleData->total_time);
         $scheduleData->order_start_time = $scheduleData->delivery_time;
         $scheduleData->pump_loading_time = $scheduleData->loading_start;
@@ -1432,6 +1431,7 @@ class ScheduleService
                         $capacity = $mixer['truck_capacity'];
 
                         // Only consider trucks with matching capacity
+                        
                         if ($capacity < $batchingQty) {
                             continue;
                         }
