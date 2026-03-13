@@ -311,7 +311,7 @@ class PumpHelper
                         continue;
                     }
 
- $slotDiff = self::getSlotsDiff($previousSlot, $nextSlot, $start, $end, $order->interval, $pumpData, $order, $qcTime, $order->travel_to_site);
+                    $slotDiff = self::getSlotsDiff($previousSlot, $nextSlot, $start, $end, $order->interval, $pumpData, $order, $qcTime, $order->travel_to_site);
                     if (!$slotDiff) {
                         continue;
                     }
@@ -384,8 +384,8 @@ class PumpHelper
             $order->site_id
         );
 
-        $returnPreStart = Carbon::parse($prevData->cleaning_end)->addMinute();
-        $returnPreEnd = $returnPreStart->copy()->addMinutes($prevReturnTime);
+        $returnPreStart = $prevReturnTime > 0 ? Carbon::parse($prevData->cleaning_end)->addMinute() : $prevData->cleaning_end;
+        $returnPreEnd = $prevReturnTime > 0 ? $returnPreStart->copy()->addMinutes($prevReturnTime):$prevData->cleaning_end;
 
         $prevData->update([
             'return_time' => $prevReturnTime,
@@ -454,7 +454,7 @@ class PumpHelper
             }
         }
     }
-   public static function getSlotsDiff($previousSlot, $nextSlot, $start, $end, $interval, $pumpData, $order, $qc, $travel)
+    public static function getSlotsDiff($previousSlot, $nextSlot, $start, $end, $interval, $pumpData, $order, $qc, $travel)
     {
         $result = [];
         $interval = 100;

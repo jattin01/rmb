@@ -31,7 +31,7 @@ class CustomerProjectSiteHelper
             $lng = (string) $loc -> longitude;
             $queryParams['destinations'] .= ($lat . "," . $lng) . (($locKey === count($companyLocations) - 1) ? "" : "|");
         }
-        $response = Http::get($apiURL, $queryParams);
+        $response = Http::timeout(120)->get($apiURL, $queryParams);
         if ($response->successful()) {
             $responseJson = $response -> json();
             if ($responseJson['status'] == 'OK') {
@@ -79,7 +79,7 @@ class CustomerProjectSiteHelper
         //     $lng = (string) $loc -> longitude;
         //     $queryParams['destinations'] .= ($lat . "," . $lng) . (($locKey === count($companyLocations) - 1) ? "" : "|");
         // }
-        $response = Http::get($apiURL, $queryParams);
+        $response = Http::timeout(120)->get($apiURL, $queryParams);
         // if ($response->successful()) {
         //     $responseJson = $response -> json();
         //     if ($responseJson['status'] == 'OK') {
@@ -118,7 +118,7 @@ class CustomerProjectSiteHelper
                 'origins' => $companyLocation->latitude . "," . $companyLocation->longitude,
                 'destinations' => $customerProjectSite->latitude . "," . $customerProjectSite->longitude,
             ];
-            $response = Http::get($apiURL, $queryParams);
+            $response = Http::timeout(120)->get($apiURL, $queryParams);
             if($response){
                 // dd($response->json());
                 //need to compare all location and finalize least distance location as $batching 
