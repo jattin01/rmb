@@ -193,15 +193,17 @@ class ScheduleService
                 'plant_busy_slots' => [],
             ]);
             $this->generateSchedule($scheduleData);
-            $conflicts = ScheduleService::validateAllResourceConflicts($scheduleData);
-            //Log::info('Schedule Conflicts:', $conflicts);
-            $this->reassignMixersAfterStore($scheduleData);
-            $conflicts = ScheduleService::validateAllResourceConflicts($scheduleData);
-            //Log::info('Conflict before optimize:', $conflicts);
+            // $conflicts = ScheduleService::validateAllResourceConflicts($scheduleData);
+            // Log::info('Schedule Conflicts:', $conflicts);
+            // $this->reassignMixersAfterStores($scheduleData);
+            // $conflicts = ScheduleService::validateAllResourceConflicts($scheduleData);
+            // Log::info('Conflict before optimize:', $conflicts);
             $this->optimizeSchedules($scheduleData);
             self::updateQcFromPreviousSlot();
             $conflicts = ScheduleService::validateAllResourceConflicts($scheduleData);
-           // Log::info('After optmize Schedule Conflicts:', $conflicts);
+            Log::info('After optmize Schedule Conflicts:', $conflicts);
+            $this->checkScheduleTimes($scheduleData);
+
         } catch (\Exception $e) {
             if (!$scheduleData->is_completed && !$scheduleData->failure_reason) {
                 $scheduleData->failure_reason = "Unable to schedule within constraints";
@@ -679,38 +681,38 @@ class ScheduleService
     }
     private function assignTransitMixer(ScheduleData &$scheduleData, $location, $trip)
     {
-        if (isset($scheduleData->batching_plant['data']['plant_name'])){
-        $slots = $scheduleData->truck_busy_slots;
-        $scheduleData->transit_mixer = TransitMixerHelper::getAvailableTrucks(
-            $scheduleData->tms_availability,
-            null,
-            $scheduleData->loading_start,
-            $scheduleData->return_end,
-            $scheduleData->shift_end,
-            $scheduleData->restriction_start,
-            $scheduleData->restriction_end,
-            $location,
-            $trip,
-            $scheduleData->assigned_tms,
-            $slots,
-            $scheduleData->order_no,
-            $scheduleData->quantity
-        );
-        if (isset($scheduleData->transit_mixer['data']['truck_name'])) {
-            $scheduleData->truck_busy_slots[] = [
-                'start' => $scheduleData->loading_start->copy(),
-                'end' => $scheduleData->return_end->copy()->subSeconds(),
-                'truck_id' => $scheduleData->transit_mixer['data']['truck_name'],
-                'order_no' => $scheduleData->order_no,
-                'cap' => $scheduleData->transit_mixer['data']['truck_capacity'],
-            ];
-        } else {
-            $reason = 'Transit Mixer Not Found for Order' . $scheduleData->order_no;
-            if (isset($scheduleData->batching_plant['data']['plant_name'])) {
-                BatchingPlantAvailability::create(['group_company_id' => $scheduleData->company, 'location' => $scheduleData->location, 'plant_name' => $scheduleData->batching_plant['data']['plant_name'], 'plant_capacity' => 0, 'free_from' => $scheduleData->loading_start, 'free_upto' => $scheduleData->loading_start, 'user_id' => $scheduleData->user_id, 'reason' => $reason]);
+        if (isset($scheduleData->batching_plant['data']['plant_name'])) {
+            $slots = $scheduleData->truck_busy_slots;
+            $scheduleData->transit_mixer = TransitMixerHelper::getAvailableTrucks(
+                $scheduleData->tms_availability,
+                null,
+                $scheduleData->loading_start,
+                $scheduleData->return_end,
+                $scheduleData->shift_end,
+                $scheduleData->restriction_start,
+                $scheduleData->restriction_end,
+                $location,
+                $trip,
+                $scheduleData->assigned_tms,
+                $slots,
+                $scheduleData->order_no,
+                $scheduleData->quantity
+            );
+            if (isset($scheduleData->transit_mixer['data']['truck_name'])) {
+                $scheduleData->truck_busy_slots[] = [
+                    'start' => $scheduleData->loading_start->copy(),
+                    'end' => $scheduleData->return_end->copy()->subSeconds(),
+                    'truck_id' => $scheduleData->transit_mixer['data']['truck_name'],
+                    'order_no' => $scheduleData->order_no,
+                    'cap' => $scheduleData->transit_mixer['data']['truck_capacity'],
+                ];
+            } else {
+                $reason = 'Transit Mixer Not Found for Order' . $scheduleData->order_no;
+                if (isset($scheduleData->batching_plant['data']['plant_name'])) {
+                    BatchingPlantAvailability::create(['group_company_id' => $scheduleData->company, 'location' => $scheduleData->location, 'plant_name' => $scheduleData->batching_plant['data']['plant_name'], 'plant_capacity' => 0, 'free_from' => $scheduleData->loading_start, 'free_upto' => $scheduleData->loading_start, 'user_id' => $scheduleData->user_id, 'reason' => $reason]);
+                }
+                Log::info("Transit Mixer Not Found for Order: " . $trip);
             }
-            Log::info("Transit Mixer Not Found for Order: " . $trip);
-        }
         }
     }
     private function allResourcesAssigned(ScheduleData &$scheduleData)
@@ -903,151 +905,110 @@ class ScheduleService
     public function optimizeSchedules(ScheduleData $scheduleData)
     {
         DB::transaction(function () use ($scheduleData) {
-            try {
-                $records = SelectedOrderSchedule::where("group_company_id", $scheduleData->company)
-                    ->where("user_id", $scheduleData->user_id)
-                    ->where('schedule_date', $scheduleData->schedule_date)
-                    ->orderBy('loading_start')
-                    ->get();
 
-                $slots = [];
-                foreach ($records as $r) {
-                    $slots[] = [
-                        'id' => $r->id,
-                        'order_no' => $r->order_no,
-                        'trip' => $r->trip,
-                        'loading_start' => $r->loading_start,
-                        'loading_end' => $r->loading_end,
-                        'return_end' => $r->return_end,
-                        'batching_plant' => $r->batching_plant,
-                        'pouring_start' => $r->pouring_start,
-                        'transit_mixer' => $r->transit_mixer,
-                        'pump' => $r->pump_assign ? $r->pump_assign->pump_name : null,
-                        'pump_qc_start' => $r->pump_assign ? $r->pump_assign->qc_start : null,
-                        'pump_return_end' => $r->pump_assign ? $r->pump_assign->return_end : null
-                    ];
+            $records = SelectedOrderSchedule::where("group_company_id", $scheduleData->company)
+                ->where("user_id", $scheduleData->user_id)
+                ->where('schedule_date', $scheduleData->schedule_date)
+                ->orderBy('loading_start')
+                ->get();
+
+            foreach ($records as $row) {
+
+                $originalStart = Carbon::parse($row->loading_start);
+
+                /* ---------- previous plant job ---------- */
+                $prevPlant = $records
+                    ->where('batching_plant', $row->batching_plant)
+                    ->where('id', '!=', $row->id)
+                    ->filter(function ($r) use ($row) {
+                        return Carbon::parse($r->loading_end)
+                            ->lt(Carbon::parse($row->loading_start));
+                    })
+                    ->sortByDesc('loading_end')
+                    ->first();
+
+                /* ---------- previous mixer job ---------- */
+                $prevMixer = $records
+                    ->where('transit_mixer', $row->transit_mixer)
+                    ->where('id', '!=', $row->id)
+                    ->filter(function ($r) use ($row) {
+                        return Carbon::parse($r->return_end)
+                            ->lt(Carbon::parse($row->loading_start));
+                    })
+                    ->sortByDesc('return_end')->first();
+
+                $plantGap = $prevPlant
+                    ? Carbon::parse($prevPlant->loading_end)
+                        ->diffInMinutes(Carbon::parse($row->loading_start)) - 1
+                    : PHP_INT_MAX;
+
+                $mixerGap = $prevMixer
+                    ? Carbon::parse($prevMixer->return_end)
+                        ->diffInMinutes(Carbon::parse($row->loading_start)) - 1
+                    : PHP_INT_MAX;
+
+                $intervalGap = $row->order->interval ?? 0;
+
+                $earlyMinutes = min($plantGap, $mixerGap, $intervalGap+1);
+
+                $newStart = Carbon::parse($row->loading_start)->subMinutes($earlyMinutes);
+
+
+                if (!$newStart) {
+                    continue;
                 }
-                foreach ($records as $index => $row) {
-                    $pouringStart = Carbon::parse($row->pouring_start);
-                    $recordsByPlant = collect($slots)
-                        ->where('batching_plant', $row->batching_plant)
-                        ->where('id', '!=', $row->id)
-                        ->where('loading_start', '<', $row->loading_start);
-                    $recordsByMixer = collect($slots)
-                        ->where('transit_mixer', $row->transit_mixer)
-                        ->where('id', '!=', $row->id)
-                        ->where('loading_start', '<', $row->loading_start);
-
-                    $previousPump = null;
-                    if ($row->pump_assign) {
-                        $previousPump = collect($slots)
-                            ->where("user_id", $scheduleData->user_id)
-                            ->where('schedule_date', $scheduleData->schedule_date)
-                            ->where('pump', $row->pump_assign->pump_name)
-                            ->where('id', '!=', $row->id)
-                            ->where('pouring_start', '<', $row->pump_assign->pouring_start)
-                            ->sortByDesc('pouring_start')
-                            ->first();
-                    }
-
-
-                    $prevPumpEnd = $previousPump
-                        ? Carbon::parse($previousPump['pump_return_end'])
-                        : null;
-
-                    if ($prevPumpEnd) {
-                        Log::info("Previous pump return end time: " . $prevPumpEnd->format('Y-m-d H:i:s'));
-                    }
-
-
-
-
-                    $previousBatching = $recordsByPlant
-                        ->sortByDesc('loading_start')
-                        ->first();
-                    $prevBatchingEnd = $previousBatching
-                        ? Carbon::parse($previousBatching['loading_end'])
-                        : null;
-                    $previousTransit = $recordsByMixer
-                        ->sortByDesc('loading_start')
-                        ->first();
-                    $previousTransitEnd = $previousTransit
-                        ? Carbon::parse($previousTransit['return_end'])
-                        : null;
-                    $earliestStart = collect([$prevBatchingEnd, $previousTransitEnd, $prevPumpEnd])
-                        ->filter()
-                        ->max();
-                    if (!$earliestStart) {
-                        continue;
-                    }
-                    $loadingStart = $earliestStart->copy()->addMinute();
-                    $originalLoadingStart = Carbon::parse($row->loading_start);
-                    $maxEarlyAllowed = $originalLoadingStart->copy()->subMinutes($row->order->interval);
-                    if ($loadingStart->lt($maxEarlyAllowed)) {
-                        $loadingStart = $maxEarlyAllowed;
-                    }
-                    $loadingEnd = $loadingStart->copy()->addMinutes($row->loading_time);
-                    $qcStart = $loadingEnd->copy()->addMinute();
-                    $qcEnd = $qcStart->copy()->addMinutes($row->qc_time);
-                    $travelStart = $qcEnd->copy()->addMinute();
-                    $travelEnd = $travelStart->copy()->addMinutes($row->travel_time);
-                    $inspStart = $travelEnd->copy()->addMinute();
-                    $inspEnd = $inspStart->copy()->addMinutes($row->insp_time);
-                    $waitingStart = $inspEnd->copy()->addMinute();
-                    $waitingEnd = $pouringStart->copy()->subMinute();
-                    $waitingTime = $waitingStart->diffInMinutes($waitingEnd);
-                    $slots[$index]['loading_start'] = $loadingStart;
-                    $slots[$index]['loading_end'] = $loadingEnd;
-                    SelectedOrderSchedule::where('id', $row->id)->update([
-                        'loading_start' => $loadingStart,
-                        'loading_end' => $loadingEnd,
-                        'qc_start' => $qcStart,
-                        'qc_end' => $qcEnd,
-                        'travel_start' => $travelStart,
-                        'travel_end' => $travelEnd,
-                        'insp_start' => $inspStart,
-                        'insp_end' => $inspEnd,
-                        'waiting_start' => $waitingStart,
-                        'waiting_end' => $waitingEnd,
-                        'waiting_time' => $waitingTime
-                    ]);
-                    // if ($row->pump_assign) {
-                    //     $waitingStartPump = $loadingStart->copy();
-                    //     $waitingEndPump = Carbon::parse($row->pump_assign->pouring_start)->subMinute();
-                    //     $waitingTimePump = $waitingStartPump->diffInMinutes($waitingEndPump);
-
-                    //     $installEnd = $waitingStartPump->copy()->subMinute();
-                    //     $installStart = $installEnd->copy()->subMinutes($row->pump_assign->install_time);
-
-                    //     $inspEndPump = $installStart->copy()->subMinute();
-                    //     $inspStartPump = $inspEndPump->copy()->subMinutes($row->pump_assign->insp_time);
-
-                    //     $travelEndPump = $inspStartPump->copy()->subMinute();
-                    //     ;
-                    //     $travelStartPump = $travelEndPump->copy()->subMinutes($row->pump_assign->travel_time);
-                    //     $qcEndPump = $travelStartPump->copy()->subMinute();
-                    //     $qcStartPump = $qcEndPump->copy()->subMinutes($row->pump_assign->qc_time);
-                    //     SelectedOrderPumpSchedule::where('id', $row->pump_assign->id)->update([
-                    //         'qc_start' => $qcStartPump,
-                    //         'qc_end' => $qcEndPump,
-                    //         'travel_start' => $travelStartPump,
-                    //         'travel_end' => $travelEndPump,
-                    //         'insp_start' => $inspStartPump,
-                    //         'install_start' => $installStart,
-                    //         'install_end' => $installEnd,
-                    //         'insp_end' => $inspEndPump,
-                    //         'waiting_start' => $waitingStartPump,
-                    //         'waiting_end' => $waitingEndPump,
-                    //         'waiting_time' => $waitingTimePump
-                    //     ]);
-                    //     $slots[$index]['qc_start_pump'] = $qcStartPump;
-
-                    // }
+                if($newStart->gte($originalStart)){
+                    continue;
                 }
-            } catch (\Exception $e) {
-                Log::error("Schedule optimization failed: " . $e->getMessage());
-                throw $e;
+
+                $newStart = Carbon::parse($newStart);
+
+                /* ---------- recompute timings ---------- */
+
+                $loadingEnd = $newStart->copy()->addMinutes($row->loading_time);
+
+                $qcStart = $loadingEnd->copy()->addMinute();
+                $qcEnd = $qcStart->copy()->addMinutes($row->qc_time);
+
+                $travelStart = $qcEnd->copy()->addMinute();
+                $travelEnd = $travelStart->copy()->addMinutes($row->travel_time);
+
+                $inspStart = $travelEnd->copy()->addMinute();
+                $inspEnd = $inspStart->copy()->addMinutes($row->insp_time);
+
+                $waitingStart = $inspEnd->copy()->addMinute();
+                $waitingEnd = Carbon::parse($row->pouring_start)->subMinute();
+
+                $waitingTime = max(0, $waitingStart->diffInMinutes($waitingEnd, false));
+
+
+                /* ---------- update row ---------- */
+
+                $row->loading_start = $newStart;
+                $row->loading_end = $loadingEnd;
+
+                $row->qc_start = $qcStart;
+                $row->qc_end = $qcEnd;
+
+                $row->travel_start = $travelStart;
+                $row->travel_end = $travelEnd;
+
+                $row->insp_start = $inspStart;
+                $row->insp_end = $inspEnd;
+
+                $row->waiting_start = $waitingStart;
+                $row->waiting_end = $waitingEnd;
+                $row->waiting_time = $waitingTime;
+
+                $row->save();
+
+                /* ---------- update in-memory record ---------- */
+
+                $records = $records->map(function ($r) use ($row) {
+                    return $r->id == $row->id ? $row : $r;
+                });
             }
+
         });
     }
     private function assignPump($order, ScheduleData &$scheduleData, $location): bool
@@ -1429,6 +1390,97 @@ class ScheduleService
     public function reassignMixersAfterStore(ScheduleData $scheduleData): void
     {
         DB::transaction(function () use ($scheduleData) {
+
+            $mixers = collect($scheduleData->tms_availability);
+
+            if ($mixers->isEmpty()) {
+                return;
+            }
+
+            $rows = SelectedOrderSchedule::where("group_company_id", $scheduleData->company)
+                ->where("user_id", $scheduleData->user_id)
+                ->where("schedule_date", $scheduleData->schedule_date)
+                ->lockForUpdate()
+                ->orderBy('loading_start', 'asc')
+                ->orderBy('capacity', 'desc')
+                ->get();
+
+            if ($rows->isEmpty()) {
+                return;
+            }
+
+            $busyIntervals = [];
+
+            foreach ($mixers as $mixer) {
+                $busyIntervals[$mixer['truck_name']] = [];
+            }
+
+            foreach ($rows as $row) {
+
+                $start = Carbon::parse($row->loading_start)->copy();
+                $end = Carbon::parse($row->return_end)->copy();
+
+                $bestTruck = null;
+                $bestGap = -1;
+
+                foreach ($mixers as $mixer) {
+
+                    if ($mixer['truck_capacity'] != $row->capacity) {
+                        continue;
+                    }
+
+                    $truck = $mixer['truck_name'];
+                    $intervals = $busyIntervals[$truck];
+
+                    $conflict = false;
+                    $lastEnd = null;
+
+                    foreach ($intervals as $interval) {
+
+                        // strict overlap check
+                        if ($start->lt($interval['end']) && $end->gt($interval['start'])) {
+                            $conflict = true;
+                            break;
+                        }
+
+                        if (!$lastEnd || $interval['end']->gt($lastEnd)) {
+                            $lastEnd = $interval['end'];
+                        }
+                    }
+
+                    if ($conflict) {
+                        continue;
+                    }
+
+                    $gap = $lastEnd ? $start->diffInMinutes($lastEnd, false) : PHP_INT_MAX;
+
+                    if ($gap < 0) {
+                        continue;
+                    }
+
+                    if ($bestTruck === null || $gap > $bestGap) {
+                        $bestTruck = $truck;
+                        $bestGap = $gap;
+                    }
+                }
+
+                if (!$bestTruck) {
+                    continue;
+                }
+
+                $row->transit_mixer = $bestTruck;
+                $row->save();
+
+                $busyIntervals[$bestTruck][] = [
+                    'start' => $start,
+                    'end' => $end,
+                ];
+            }
+        });
+    }
+    public function reassignMixersAfterStores(ScheduleData $scheduleData): void
+    {
+        DB::transaction(function () use ($scheduleData) {
             $allMixers = $scheduleData->tms_availability;
             $rows = SelectedOrderSchedule::where("group_company_id", $scheduleData->company)
                 ->where("user_id", $scheduleData->user_id)
@@ -1576,72 +1628,121 @@ class ScheduleService
     }
     public static function updateQcFromPreviousSlot()
     {
-        try{
-        // Fetch all slots where qc_time is 0
-        $slots = SelectedOrderPumpSchedule::where('qc_time', 0)
-            ->orderBy('pouring_start') // order by pouring_start to make previous slot logic easy
+        try {
+            // Fetch all slots where qc_time is 0
+            $slots = SelectedOrderPumpSchedule::where('qc_time', 0)
+                ->orderBy('pouring_start') // order by pouring_start to make previous slot logic easy
+                ->get();
+
+            foreach ($slots as $slot) {
+                // Find the nearest previous slot on the same pump
+                $previousSlot = SelectedOrderPumpSchedule::where('pump', $slot->pump)
+                    ->where('pouring_start', '<', $slot->pouring_start)
+                    ->orderByDesc('pouring_start')
+                    ->first();
+
+                if (!$previousSlot) {
+                    // No previous slot exists for this pump
+                    continue;
+                }
+
+                $qcStart = Carbon::parse($previousSlot->return_end)->copy()->addMinute();
+                $qcEnd = $qcStart->copy();
+
+                $travelStart = $qcStart->copy();
+                $travelEnd = $qcStart->copy();
+
+                $inspStart = $qcStart->copy();
+                $inspEnd = $inspStart->copy()->addMinutes($previousSlot->insp_time); // default 5 min if 0
+
+                $installStart = $inspEnd->copy()->addMinute();
+                $installEnd = $installStart->copy()->addMinutes($slot->install_time); // default 5 min if 0
+
+                $waitingStart = $installEnd->copy()->addMinute();
+                $waitingEnd = Carbon::parse($slot->pouring_start)->subMinute();
+
+                $waitingMinutes = $waitingStart->diffInMinutes($waitingEnd);
+                $waitingMinutes = max($waitingMinutes, 0); // ensure not negative
+                $pourEnd = Carbon::parse($slot->pouring_end);
+                $clean_start = $pourEnd->copy()->addMinute();
+                $clean_end = $clean_start->copy()->addMinutes($slot->cleaning_time);
+                $retun_start = $clean_end->copy()->addMinute();
+                $return_end = $retun_start->copy()->addMinutes($slot->return_time);
+
+
+                // Update current slot
+                $slot->update([
+                    'qc_start' => $qcStart->format('Y-m-d H:i:s'),
+                    'qc_end' => $qcEnd->format('Y-m-d H:i:s'),
+                    'travel_start' => $travelStart->format('Y-m-d H:i:s'),
+                    'travel_end' => $travelEnd->format('Y-m-d H:i:s'),
+                    'insp_start' => $inspStart->format('Y-m-d H:i:s'),
+                    'insp_end' => $inspEnd->format('Y-m-d H:i:s'),
+                    'install_start' => $installStart->format('Y-m-d H:i:s'),
+                    'install_end' => $installEnd->format('Y-m-d H:i:s'),
+                    'waiting_start' => $waitingStart->format('Y-m-d H:i:s'),
+                    'waiting_end' => $waitingEnd->format('Y-m-d H:i:s'),
+                    'waiting_time' => $waitingMinutes,
+                    'cleaning_start' => $clean_start,
+                    'cleaning_end' => $clean_end,
+                    'return_start' => $retun_start,
+                    'return_end' => $return_end
+                ]);
+
+
+            }
+        } catch (Exception $e) {
+            Log::info("Qc update error" . $e->getMessage());
+        }
+    }
+
+
+    function checkScheduleTimes($scheduleData)
+    {
+        $pairs = [
+            ['loading_start', 'loading_end'],
+            ['qc_start', 'qc_end'],
+            ['travel_start', 'travel_end'],
+            ['insp_start', 'insp_end'],
+            ['waiting_start', 'waiting_end'],
+            ['pouring_start', 'pouring_end'],
+            ['cleaning_start', 'cleaning_end'],
+            ['return_start', 'return_end'],
+        ];
+
+        $records = SelectedOrderSchedule::where("group_company_id", $scheduleData->company)
+            ->where("user_id", $scheduleData->user_id)
+            ->where('schedule_date', $scheduleData->schedule_date)
+            ->orderBy('loading_start')
             ->get();
 
-        foreach ($slots as $slot) {
-            // Find the nearest previous slot on the same pump
-            $previousSlot = SelectedOrderPumpSchedule::where('pump', $slot->pump)
-                ->where('pouring_start', '<', $slot->pouring_start)
-                ->orderByDesc('pouring_start')
-                ->first();
+        foreach ($records as $row) {
 
-            if (!$previousSlot) {
-                // No previous slot exists for this pump
-                continue;
+            foreach ($pairs as $pair) {
+
+                $start = $row->{$pair[0]};
+                $end = $row->{$pair[1]};
+
+                if ($start && $end) {
+
+                    if (Carbon::parse($start)->gt(Carbon::parse($end))) {
+
+                        Log::error('Schedule time error detected', [
+                            'schedule_id' => $row->id,
+                            'order_id' => $row->order_id,
+                            'schedule_date' => $row->schedule_date,
+                            'trip' => $row->trip,
+                            'stage' => $pair[0] . ' -> ' . $pair[1],
+                            'start_time' => $start,
+                            'end_time' => $end
+                        ]);
+
+                    }
+
+                }
+
             }
 
-            $qcStart = Carbon::parse($previousSlot->return_end)->copy()->addMinute();
-            $qcEnd = $qcStart->copy();
-
-            $travelStart = $qcStart->copy();
-            $travelEnd = $qcStart->copy();
-
-            $inspStart = $qcStart->copy();
-            $inspEnd = $inspStart->copy()->addMinutes($previousSlot->insp_time); // default 5 min if 0
-
-            $installStart = $inspEnd->copy()->addMinute();
-            $installEnd = $installStart->copy()->addMinutes($slot->install_time); // default 5 min if 0
-
-            $waitingStart = $installEnd->copy()->addMinute();
-            $waitingEnd = Carbon::parse($slot->pouring_start)->subMinute();
-
-            $waitingMinutes = $waitingStart->diffInMinutes($waitingEnd);
-            $waitingMinutes = max($waitingMinutes, 0); // ensure not negative
-            $pourEnd = Carbon::parse($slot->pouring_end);
-            $clean_start = $pourEnd->copy()->addMinute();
-            $clean_end = $clean_start->copy()->addMinutes($slot->cleaning_time);
-            $retun_start = $clean_end->copy()->addMinute();
-            $return_end = $retun_start->copy()->addMinutes($slot->return_time);
-
-
-            // Update current slot
-            $slot->update([
-                'qc_start' => $qcStart->format('Y-m-d H:i:s'),
-                'qc_end' => $qcEnd->format('Y-m-d H:i:s'),
-                'travel_start' => $travelStart->format('Y-m-d H:i:s'),
-                'travel_end' => $travelEnd->format('Y-m-d H:i:s'),
-                'insp_start' => $inspStart->format('Y-m-d H:i:s'),
-                'insp_end' => $inspEnd->format('Y-m-d H:i:s'),
-                'install_start' => $installStart->format('Y-m-d H:i:s'),
-                'install_end' => $installEnd->format('Y-m-d H:i:s'),
-                'waiting_start' => $waitingStart->format('Y-m-d H:i:s'),
-                'waiting_end' => $waitingEnd->format('Y-m-d H:i:s'),
-                'waiting_time' => $waitingMinutes,
-                'cleaning_start'=>$clean_start,
-                'cleaning_end'=>$clean_end,
-                'return_start'=>$retun_start,
-                'return_end'=> $return_end
-            ]);
-
-            
-        }}
-
-        catch(Exception $e){
-            Log::info("Qc update error". $e->getMessage());
         }
     }
 
