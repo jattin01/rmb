@@ -857,9 +857,10 @@ class ScheduleService
         $scheduleData->return_start = $scheduleData->cleaning_end->copy()->addMinute();
         $scheduleData->return_end = $scheduleData->return_start->copy()->addMinutes($scheduleData->return_time);
         $scheduleData->next_delivery_time = $scheduleData->pouring_start->copy()->addMinutes($pouring_interval);
-        if ($scheduleData->phase == 2) {
-            $scheduleData->next_delivery_time = $scheduleData->pouring_start->copy()->subMinutes($pouring_interval);
-        }
+        // if ($scheduleData->phase == 2) {
+        //     $scheduleData->next_delivery_time = $scheduleData->pouring_start->copy()->subMinutes($pouring_interval);
+        // }
+
         $scheduleData->next_loading_time = $scheduleData->next_delivery_time->copy()->subMinutes($scheduleData->total_time);
     }
     private function createScheduleEntry($order, ScheduleData $scheduleData, $location, $trip)
@@ -921,10 +922,10 @@ class ScheduleService
                     ->where('batching_plant', $row->batching_plant)
                     ->where('id', '!=', $row->id)
                     ->filter(function ($r) use ($row) {
-                        return Carbon::parse($r->loading_end)
+                        return Carbon::parse($r->loading_start)
                             ->lt(Carbon::parse($row->loading_start));
                     })
-                    ->sortByDesc('loading_end')
+                    ->sortByDesc('loading_start')
                     ->first();
 
                 /* ---------- previous mixer job ---------- */
@@ -932,10 +933,10 @@ class ScheduleService
                     ->where('transit_mixer', $row->transit_mixer)
                     ->where('id', '!=', $row->id)
                     ->filter(function ($r) use ($row) {
-                        return Carbon::parse($r->return_end)
+                        return Carbon::parse($r->loading_start)
                             ->lt(Carbon::parse($row->loading_start));
                     })
-                    ->sortByDesc('return_end')->first();
+                    ->sortByDesc('loading_start')->first();
 
                 $plantGap = $prevPlant
                     ? Carbon::parse($prevPlant->loading_end)
@@ -949,7 +950,7 @@ class ScheduleService
 
                 $intervalGap = $row->order->interval ?? 0;
 
-                $earlyMinutes = min($plantGap, $mixerGap, $intervalGap+1);
+                $earlyMinutes = min($plantGap, $mixerGap, $intervalGap + 1);
 
                 $newStart = Carbon::parse($row->loading_start)->subMinutes($earlyMinutes);
 
@@ -957,8 +958,21 @@ class ScheduleService
                 if (!$newStart) {
                     continue;
                 }
-                if($newStart->gte($originalStart)){
+                if ($newStart->gte($originalStart)) {
                     continue;
+                }
+
+                $prevTrip = $records
+                    ->where('trip', $row->trip - 1)
+                    ->where('order_id', $row->order_id)
+                    ->first();
+
+                if (isset($prevTrip)) {
+                    $prevLoadingStart = Carbon::parse($prevTrip->loading_start);
+                    if ($newStart->lt($prevLoadingStart)) {
+                        $newStart = $prevLoadingStart->addMinute();
+
+                    }
                 }
 
                 $newStart = Carbon::parse($newStart);
@@ -1010,6 +1024,81 @@ class ScheduleService
             }
 
         });
+    }
+    public function reassignPouring(ScheduleData $scheduleData)
+    {
+        try {
+            // loading order records
+            $records = SelectedOrderSchedule::where("group_company_id", $scheduleData->company)
+                ->where("user_id", $scheduleData->user_id)
+                ->where('schedule_date', $scheduleData->schedule_date)
+                ->orderBy('loading_start')
+                ->get();
+
+            // pouring times array (pouring_start ASC)
+            $pouringTimes = SelectedOrderSchedule::where("group_company_id", $scheduleData->company)
+                ->where("user_id", $scheduleData->user_id)
+                ->where('schedule_date', $scheduleData->schedule_date)
+                ->orderBy('pouring_start')
+                ->get(['pouring_start', 'pouring_end', 'pouring_time'])
+                ->toArray();
+
+            $i = 0;
+
+            foreach ($records as $r) {
+
+                if (!isset($pouringTimes[$i]) && ($pouringTimes[$i]['pouring_start'] === $r->pouring_start)) {
+                    break;
+                }
+
+                $pourStart = Carbon::parse($pouringTimes[$i]['pouring_start']);
+                $pourEnd = Carbon::parse($pouringTimes[$i]['pouring_end']);
+                $pourTime = $pouringTimes[$i]['pouring_time'];
+
+                // update pouring
+                $r->pouring_start = $pourStart;
+                $r->pouring_end = $pourEnd;
+                $r->pouring_time = $pourTime;
+
+                // waiting calculation
+                $waitingStart = Carbon::parse($r->insp_start)->copy()->addMinute();
+                $waitingEnd = $pourStart->copy()->subMinute();
+                $waitingTime = $waitingStart->diffInMinutes($waitingEnd);
+
+                if (!($waitingTime > 0)) {
+                    $waitingStart = Carbon::parse($r->insp_start);
+                    $waitingEnd = Carbon::parse($r->insp_start);
+                    $waitingTime = 0;
+
+
+                }
+
+
+                $r->waiting_end = $waitingEnd;
+                $r->waiting_time = $waitingTime;
+
+                // cleaning
+                $cleanStart = $pourEnd->copy()->addMinute();
+                $cleanEnd = $cleanStart->copy()->addMinutes($r->cleaning_time);
+
+                // return
+                $returnStart = $cleanEnd->copy()->addMinute();
+                $returnEnd = $returnStart->copy()->addMinutes($r->return_time);
+
+                $r->cleaning_start = $cleanStart;
+                $r->cleaning_end = $cleanEnd;
+
+                $r->return_start = $returnStart;
+                $r->return_end = $returnEnd;
+
+                $r->save();
+
+                $i++;
+            }
+        } catch (Exception $e) {
+            dd($e->getMessage());
+        }
+
     }
     private function assignPump($order, ScheduleData &$scheduleData, $location): bool
     {
@@ -1156,7 +1245,7 @@ class ScheduleService
             $cleanStart = $groupPourEnd->copy()->addMinute();
             $cleanEnd = $cleanStart->copy()->addMinutes((int) $scheduleData->cleaning_time);
             $returnStart = $returnTime > 0 ? $cleanEnd->copy()->addMinute() : $cleanEnd->copy();
-            $returnEnd = $returnTime > 0 ? $returnStart->copy()->addMinutes($returnTime): $cleanEnd->copy();
+            $returnEnd = $returnTime > 0 ? $returnStart->copy()->addMinutes($returnTime) : $cleanEnd->copy();
             if ($waiting) {
                 Log::info("Update Current Slot Waiting " . $waiting);
                 $inspStart = $inspStart->copy()->subMinutes($waiting);
@@ -1729,7 +1818,7 @@ class ScheduleService
 
                         Log::error('Schedule time error detected', [
                             'schedule_id' => $row->id,
-                            'order_id' => $row->order_id,
+                            'order_no' => $row->order_no,
                             'schedule_date' => $row->schedule_date,
                             'trip' => $row->trip,
                             'stage' => $pair[0] . ' -> ' . $pair[1],
