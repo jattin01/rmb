@@ -542,6 +542,7 @@ class OrderController extends Controller
                 'groupCompany' => $groupCompany
             ]);
         } catch (Exception $ex) {
+            dd($ex->getMessage());
             return view('components.common.internal_error', ['message' => $ex->getMessage()]);
         }
     }
@@ -625,6 +626,7 @@ class OrderController extends Controller
                 'groupCompany' => $groupCompany
             ]);
         } catch (Exception $ex) {
+            dd($ex->getMessage());
             return redirect()->back()->with(ConstantHelper::ERROR, __("message.internal_server_error"));
         }
     }
@@ -863,7 +865,7 @@ class OrderController extends Controller
                 ]
             ]);
         } catch (Exception $ex) {
-            $message="";
+            $message = "";
             $lastUpdated = BatchingPlantAvailability::orderBy('updated_at', 'desc')->first();
 
             if ($lastUpdated) {
@@ -954,24 +956,20 @@ class OrderController extends Controller
     {
         $validator = (new Validator($request))->generateSchedule();
         if ($validator->fails()) {
-            return redirect()->back()->withInput()->withErrors($validator);
+            return response()->json([
+                'status' => 'error',
+                'message' => $validator->messages()->first()
+            ], 422);
         }
-        try {
 
+        try {
             $company_shifts = GroupCompanyHelper::getShiftTime($request->company_id, $request->schedule_date);
             $shift_start = $company_shifts['start_time'];
             $shift_end = $company_shifts['end_time'];
-
-            $interval_deviation = isset($request->interval_deviation) ? $request->interval_deviation : 100;
-            $interval_deviation = (int) ($interval_deviation);
-            
-
-            // OrderScheduleHelper::initializeScheduleOld(
+            $interval_deviation = (int) ($request->interval_deviation ?? 100);
 
             $scheduleService = new ScheduleService();
-
             $scheduleService->initializeSchedule(
-
                 auth()->user()->id,
                 $request->company_id,
                 $request->schedule_date,
@@ -984,39 +982,20 @@ class OrderController extends Controller
                 $interval_deviation
             );
 
-            // $orderSchedule = new OrderScheduleHelperV2(
-            //     auth()->user()->id,
-            //     $request->company_id,
-            //     $request->schedule_date,
-            //     $request->transit_mixers,
-            //     $request->pumps ?? [],
-            //     $request->batching_plants,
-            //     "",
-            //     $shift_start,
-            //     $shift_end,
-            //     $interval_deviation
-            // );
-
-            // $orderSchedule->initializeSchedule();
-
-            // return redirect() -> route(RouteConstantHelper::ORDER_SCHEDULE_VIEW, [
-            //     'schedule_date' => $request -> schedule_date,
-            //     'company_id' => $request -> company_id,
-            // ]);
             return response()->json([
-                'status' => ConstantHelper::SUCCESS,
+                'status' => 'success',
                 'message' => __("message.action_success", ['static' => __("static.publish")])
             ]);
-        } catch (Exception $ex) {
+
+        } catch (\Exception $ex) {
+            Log::error('Generate Schedule Failed: ' . $ex->getMessage() . ' | File: ' . $ex->getFile() . ' | Line: ' . $ex->getLine());
+
             return response()->json([
-                'status' => ConstantHelper::SUCCESS,
-                'message' => $ex
-            ]);
-            // return redirect() -> back() -> with(ConstantHelper::ERROR, __("message.internal_server_error"));
-            dd($ex->getMessage() . $ex->getFile() . $ex->getLine());
+                'status' => 'error',
+                'message' => 'Schedule generation failed: ' . $ex->getMessage()
+            ], 500);
         }
     }
-
     //All Orders Listing
     public function ordersOverview(Request $request)
     {

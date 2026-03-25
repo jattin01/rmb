@@ -93,8 +93,82 @@ class BatchingPlantHelper
         return $minValue;
     }
 
+  
+public static function getAvailableBatchingPlants(
+    $batching_plants,
+    $location,
+    $loading_start,
+    $loading_end,
+    $restriction_start,
+    $restriction_end,
+    $assignedPlants,
+    $assignedPlant = null,
+) {
+    // Restriction window check
+    if (
+        isset($restriction_start, $restriction_end) &&
+        Carbon::parse($loading_start)->between(
+            Carbon::parse($restriction_start),
+            Carbon::parse($restriction_end)
+        )
+    ) {
+        return null;
+    }
 
-    public static function getAvailableBatchingPlants(
+    $loadingStart = Carbon::parse($loading_start);
+    $loadingEnd   = Carbon::parse($loading_end);
+
+    // If order already has a fixed plant — ONLY return that plant or null
+    if ($assignedPlant !== null) {
+        foreach ($batching_plants as $key => $plant) {
+            if ($plant['plant_name'] !== $assignedPlant) {
+                continue;
+            }
+            if ($plant['location'] !== $location) {
+                continue;
+            }
+            if (Carbon::parse($plant['free_from'])->gt($loadingStart)) {
+                continue;
+            }
+            if (Carbon::parse($plant['free_upto'])->lt($loadingEnd)) {
+                continue;
+            }
+            return ['data' => $plant, 'index' => $key];
+        }
+        // Assigned plant exists but is not available at this time
+        return null;
+    }
+
+    // No fixed plant yet — find preferred or fallback
+    $preferred = null;
+    $fallback  = null;
+
+    foreach ($batching_plants as $key => $plant) {
+
+        if ($plant['location'] !== $location) {
+            continue;
+        }
+        if (Carbon::parse($plant['free_from'])->gt($loadingStart)) {
+            continue;
+        }
+        if (Carbon::parse($plant['free_upto'])->lt($loadingEnd)) {
+            continue;
+        }
+
+        if ($preferred === null && in_array($plant['plant_name'], $assignedPlants)) {
+            $preferred = ['data' => $plant, 'index' => $key];
+            break;
+        }
+
+        if ($fallback === null) {
+            $fallback = ['data' => $plant, 'index' => $key];
+        }
+    }
+
+    return $preferred ?? $fallback;
+}  
+
+    public static function getAvailableBatchingPlantsNew(
         $batching_plants,
         $company,
         $location,
@@ -105,8 +179,8 @@ class BatchingPlantHelper
         $trip,
         $assignedPlants,
         $orderNo,
-        array &$slots = [] ,
-        $plant_name=null  // ✅ pass-by-ref slots
+        array &$slots = [],
+        $plant_name = null  // ✅ pass-by-ref slots
     ) {
         // Restriction window
         // if (isset($restriction_start) && isset($restriction_end)) {
@@ -185,7 +259,6 @@ class BatchingPlantHelper
             }
         }
 
-        // ✅ 2) Otherwise strict FIFO among all eligible plants
         $candidates = [];
 
         foreach ($plants as $idx => $plant) {

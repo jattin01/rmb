@@ -22,6 +22,7 @@ class TransitMixerHelper
         })->select('transit_mixers.id', "truck_name", "truck_capacity", "loading_time", "working_hrs_s", "working_hrs_e")
             ->where("group_companies.id", $company_id)
             ->where("transit_mixers.status", ConstantHelper::ACTIVE)
+            ->where('transit_mixers.truck_capacity',8)
             ->whereIn("transit_mixers.id", $transit_mixer_ids)
             ->orderBy('transit_mixers.truck_capacity', 'desc')
             ->get();
@@ -125,7 +126,9 @@ class TransitMixerHelper
 
         $optimalCapacity = ScheduleService::getOptimalTruckCapacity(
             $trucks,
-            $requiredQty
+            $requiredQty,
+            $order_no,
+            $trip
         );
 
         $eligibleTrucks = array_filter($eliglibleTruck, function ($truck) use ($optimalCapacity) {
@@ -179,11 +182,89 @@ class TransitMixerHelper
         $restriction_start,
         $restriction_end,
         $location = null,
+        $trip,
+        $assignedTrucks = []
+    ) {
+        $minDate = Carbon::parse($location_end_time)->lte(Carbon::parse($return_end))
+            ? Carbon::parse($location_end_time)
+            : Carbon::parse($return_end);
+
+        $loadingStart = Carbon::parse($loading_start);
+
+        if (
+            isset($restriction_start, $restriction_end) &&
+            (
+                $loadingStart->between(Carbon::parse($restriction_start), Carbon::parse($restriction_end)) ||
+                $minDate->between(Carbon::parse($restriction_start), Carbon::parse($restriction_end))
+            )
+        ) {
+            return null;
+        }
+
+        $tier = [1 => null, 2 => null, 3 => null, 4=>null];
+
+        foreach ($trucks as $key => $truck) {
+
+            if (!isset($truck['truck_capacity'])) {
+                continue;
+            }
+
+            if ($truck['location'] && $location && $truck['location'] !== $location) {
+                continue;
+            }
+
+            $freeFrom = Carbon::parse($truck['free_from']);
+            $freeUpto = Carbon::parse($truck['free_upto']);
+
+            if ($freeFrom->gt($loadingStart) || $freeFrom->gt($minDate)) {
+                continue;
+            }
+
+            if ($freeUpto->lt($loadingStart) || $freeUpto->lt($minDate)) {
+                continue;
+            }
+
+            $isAssigned = in_array($truck['truck_name'], $assignedTrucks);
+            $capacityMatches = ($truck_cap === null || (int)$truck['truck_capacity'] === (int)$truck_cap);
+
+            if ($tier[1] === null && $isAssigned && $capacityMatches) {
+                $tier[1] = ['data' => $truck, 'index' => $key];
+            }
+            if ($tier[2] === null && $isAssigned) {
+                $tier[2] = ['data' => $truck, 'index' => $key];
+            }
+           
+            if ($tier[3] === null && !$isAssigned && $capacityMatches) {
+                $tier[3] = ['data' => $truck, 'index' => $key];
+            }
+
+            if ($tier[4] === null && !$isAssigned) {
+                $tier[4] = ['data' => $truck, 'index' => $key];
+            }
+           
+            if ($tier[1] && $tier[2] && $tier[3] && $tier[4]) {
+                break;
+            }
+           
+        }
+         
+        return $tier[1] ?? $tier[2] ?? $tier[3] ?? $tier[4];
+    }
+    public static function getAvailableTrucksNewMy(
+        $trucks,
+        $truck_cap,
+        $loading_start,
+        $return_end,
+        $location_end_time,
+        $restriction_start,
+        $restriction_end,
+        $location = null,
         $trip = null,
         $assinedTrucks = [],
         $slots = [],
         $order_no = null,
-        $quantity = null
+        $quantity = null,
+        $scheduleData
     ) {
 
         $data = null;
@@ -274,14 +355,22 @@ class TransitMixerHelper
                 }
             }
 
+
             return true;
         };
+        if ($truck_cap == null && $quantity != null) {
 
-        /*
-        --------------------------------
-        1️⃣ ASSIGNED TRUCKS FIRST
-        --------------------------------
-        */
+            $requiredQty = $quantity;
+
+            $truck_cap = ScheduleService::getOptimalTruckCapacity(
+                $trucks,
+                $requiredQty,
+                $order_no,
+                $trip
+
+            );
+        }
+
 
         foreach ($trucks as $truck_key => $truck) {
 
@@ -299,27 +388,7 @@ class TransitMixerHelper
             break;
         }
 
-        /*
-        --------------------------------
-        2️⃣ CAPACITY OPTIMIZATION
-        --------------------------------
-        */
 
-        if ($truck_cap == null && $quantity != null) {
-
-            $requiredQty = min($quantity, max(array_column($trucks, 'truck_capacity')));
-
-            $truck_cap = ScheduleService::getOptimalTruckCapacity(
-                $trucks,
-                $requiredQty
-            );
-        }
-
-        /*
-        --------------------------------
-        3️⃣ SAME CAPACITY TRUCK
-        --------------------------------
-        */
 
         if (!$data) {
 
@@ -347,8 +416,15 @@ class TransitMixerHelper
 
             foreach ($trucks as $truck_key => $truck) {
 
-                if ($truck_cap && $truck['truck_capacity'] > $quantity)
+
+
+                if ($truck_cap && $truck['truck_capacity'] > $quantity) {
                     continue;
+                }
+                if ($quantity <= 8 && $truck['truck_capacity'] !== 8) {
+                    continue;
+                }
+
 
                 if (!$isTruckAvailable($truck))
                     continue;
@@ -359,7 +435,91 @@ class TransitMixerHelper
                 break;
             }
         }
+        // return $data ? ['data' => $data, 'index' => $index] : null;
+        if ($data) {
 
+            $selectedTruck = $data;
+
+            /*
+            --------------------------------
+            ONLY APPLY EXTRA IF > 8
+            --------------------------------
+            */
+            if ($selectedTruck['truck_capacity'] > 8) {
+                $ReqQuantity = min($selectedTruck['truck_capacity'], $quantity);
+
+                $totalExtra = self::calculateTotalExtraTime(
+                    8,
+                    $ReqQuantity,
+                    $scheduleData->loading_time,
+                    $scheduleData->pouring_time
+                );
+                //dd($totalExtra,$order_no,$trip);
+
+                $newReturnEnd = $return_end->copy()->addMinutes($totalExtra);
+
+                $truckName = $selectedTruck['truck_name'];
+                $conflict = false;
+
+                foreach ($busyByTruck[$truckName] ?? [] as $slot) {
+
+                    if (
+                        $newReturnEnd->gte($slot['start']) &&
+                        $loading_start->lte($slot['end'])
+                    ) {
+                        $conflict = true;
+                        break;
+                    }
+                }
+
+                /*
+                --------------------------------
+                IF CONFLICT → USE 8 CAPACITY
+                --------------------------------
+                */
+                if ($conflict) {
+
+                    foreach ($trucks as $truck_key => $truck) {
+
+                        if ($truck['truck_capacity'] != 8)
+                            continue;
+
+                        if (!$isTruckAvailable($truck))
+                            continue;
+
+                        // ✅ NO extra time here
+                        return [
+                            'data' => $truck,
+                            'index' => $truck_key
+                        ];
+                    }
+
+                    return null; // no fallback found
+                } else {
+                    $scheduleData->return_end = $newReturnEnd->copy();
+                }
+
+            }
+        }
         return $data ? ['data' => $data, 'index' => $index] : null;
+    }
+    public static function calculateTotalExtraTime(
+        $standardCapacity,
+        $actualCapacity,
+        $standardLoadingTime,
+        $standardPouringTime
+    ) {
+        if ($standardCapacity == 0) {
+            return 0;
+        }
+
+        // Loading extra
+        $loadingExtra = $standardLoadingTime * (($actualCapacity - $standardCapacity) / $standardCapacity);
+
+        // Pouring extra
+        $pouringExtra = $standardPouringTime * (($actualCapacity - $standardCapacity) / $standardCapacity);
+
+        // Total extra
+        return $loadingExtra + $pouringExtra;
     }
 }
