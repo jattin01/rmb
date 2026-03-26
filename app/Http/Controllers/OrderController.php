@@ -964,7 +964,7 @@ class OrderController extends Controller
 
             $interval_deviation = isset($request->interval_deviation) ? $request->interval_deviation : 100;
             $interval_deviation = (int) ($interval_deviation);
-
+            
 
             // OrderScheduleHelper::initializeScheduleOld(
 
