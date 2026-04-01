@@ -407,69 +407,105 @@
             p_total_selected_count();
         }
 
-        function generate_schedule() {
-            
-            // Show the modal before making the API request
-            $('#schedule-modal').modal('show');
-            var date = getQueryParam('schedule_date');
-            var company_id = getQueryParam('company_id');
-            var pumps = [];
-            var batching_plants = [];
-            var transit_mixers = [];
+function generate_schedule() {
 
-            var bps = document.getElementsByClassName("batching_input");
-            for (let bp_loop = 0; bp_loop < bps.length; bp_loop++) {
-                if (document.getElementById("checkbox_" + bps[bp_loop].dataset.loc)?.checked == true) { // for selecting only checked data
-                    for (let index = 0; index < bps[bp_loop].value; index++) {
-                        batching_plants.push(JSON.parse(bps[bp_loop].dataset.bps)[index].id)
-                    }
-                }
+    // Show loading modal
+    $('#schedule-modal').modal({ backdrop: 'static', keyboard: false });
+    $('#schedule-modal').modal('show');
 
-            }
-            var pumps_input = document.getElementsByClassName("pump_input");
-            for (let pump_loop = 0; pump_loop < pumps_input.length; pump_loop++) {
-                for (let index = 0; index < pumps_input[pump_loop].value; index++) {
-                    pumps.push(JSON.parse(pumps_input[pump_loop].dataset.pumps)[index].id)
-                }
-            }
-            var tm_inputs = document.getElementsByClassName("transit_mixer_input");
-            for (let truck_loop = 0; truck_loop < tm_inputs.length; truck_loop++) {
-                for (let index = 0; index < tm_inputs[truck_loop].value; index++) {
-                    transit_mixers.push(JSON.parse(tm_inputs[truck_loop].dataset.tms)[index].id)
-                }
-            }
-            localStorage.setItem("transit_mixers", JSON.stringify(transit_mixers));
-            localStorage.setItem("pumps", JSON.stringify(pumps));
-            localStorage.setItem("batching_plants", JSON.stringify(batching_plants));
+    var date       = getQueryParam('schedule_date');
+    var company_id = getQueryParam('company_id');
+    var pumps            = [];
+    var batching_plants  = [];
+    var transit_mixers   = [];
 
-            // Make your API request
-            $.ajax({
-                url: "{{ route('orders.schedule.generate') }}",
-                method: 'POST',
-                data: {
-                    company_id: company_id,
-                    schedule_date: date,
-                    pumps: pumps,
-                    transit_mixers: transit_mixers,
-                    batching_plants: batching_plants,
-                    schedule_preference: localStorage.getItem("schedule_preference"),
-                    interval_deviation: localStorage.getItem("interval_deviation"),
-                    '_token': '{{ csrf_token() }}'
-                },
-                success: function(data) {
-                    // API request is complete, hide the modal
-                    
-                    window.location.href = "{{ route('orders.schedule.view') }}?schedule_date=" + date +
-                        "&company_id=" + company_id;
-                    $('#schedule-modal').modal('hide')
-                    // Process the API response as needed
-                },
-                error: function(error) {
-                    // Handle errors if necessary
-                }
-            });
+    var bps = document.getElementsByClassName("batching_input");
+    for (let bp_loop = 0; bp_loop < bps.length; bp_loop++) {
+        if (document.getElementById("checkbox_" + bps[bp_loop].dataset.loc)?.checked == true) {
+            for (let index = 0; index < bps[bp_loop].value; index++) {
+                batching_plants.push(JSON.parse(bps[bp_loop].dataset.bps)[index].id);
+            }
         }
+    }
 
+    var pumps_input = document.getElementsByClassName("pump_input");
+    for (let pump_loop = 0; pump_loop < pumps_input.length; pump_loop++) {
+        for (let index = 0; index < pumps_input[pump_loop].value; index++) {
+            pumps.push(JSON.parse(pumps_input[pump_loop].dataset.pumps)[index].id);
+        }
+    }
+
+    var tm_inputs = document.getElementsByClassName("transit_mixer_input");
+    for (let truck_loop = 0; truck_loop < tm_inputs.length; truck_loop++) {
+        for (let index = 0; index < tm_inputs[truck_loop].value; index++) {
+            transit_mixers.push(JSON.parse(tm_inputs[truck_loop].dataset.tms)[index].id);
+        }
+    }
+
+    localStorage.setItem("transit_mixers", JSON.stringify(transit_mixers));
+    localStorage.setItem("pumps", JSON.stringify(pumps));
+    localStorage.setItem("batching_plants", JSON.stringify(batching_plants));
+
+    $.ajax({
+        url: "{{ route('orders.schedule.generate') }}",
+        method: 'POST',
+        timeout: 600000, // 10 min timeout
+        data: {
+            company_id:          company_id,
+            schedule_date:       date,
+            pumps:               pumps,
+            transit_mixers:      transit_mixers,
+            batching_plants:     batching_plants,
+            schedule_preference: localStorage.getItem("schedule_preference"),
+            interval_deviation:  localStorage.getItem("interval_deviation"),
+            '_token':            '{{ csrf_token() }}'
+        },
+        success: function(response) {
+            $('#schedule-modal').modal('hide');
+
+            if (response.status === 'success') {
+                // ✅ Schedule generated — go to view
+                window.location.href = "{{ route('orders.schedule.view') }}?schedule_date=" + date + "&company_id=" + company_id;
+            } else {
+                // ❌ Server returned an error status
+                showScheduleError(response.message || 'Schedule generation failed. Please try again.');
+            }
+        },
+        error: function(xhr, status, error) {
+            $('#schedule-modal').modal('hide');
+
+            var message = 'An unexpected error occurred.';
+
+            if (status === 'timeout') {
+                message = 'Schedule generation timed out. The process may still be running — please refresh the page in a moment.';
+            } else if (xhr.responseJSON && xhr.responseJSON.message) {
+                message = xhr.responseJSON.message;
+            } else if (xhr.status === 422) {
+                message = 'Validation error: Please check your inputs and try again.';
+            } else if (xhr.status === 500) {
+                message = 'Server error occurred during schedule generation. Please check logs or try again.';
+            } else if (xhr.status === 0) {
+                message = 'Connection lost. Please check your internet connection and try again.';
+            }
+
+            showScheduleError(message);
+        }
+    });
+}
+
+function showScheduleError(message) {
+    // Replace loading modal content with error message
+    $('#schedule-modal .modal-body').html(
+        '<div class="text-center py-4">' +
+            '<i class="fa fa-exclamation-triangle text-danger" style="font-size:48px;"></i>' +
+            '<h5 class="mt-3 text-danger">Schedule Generation Failed</h5>' +
+            '<p class="text-muted mt-2">' + message + '</p>' +
+            '<button type="button" class="btn btn-primary mt-3" data-dismiss="modal">Close</button>' +
+        '</div>'
+    );
+    $('#schedule-modal').modal({ backdrop: true, keyboard: true });
+    $('#schedule-modal').modal('show');
+}
         function getQueryParam(name) {
             var urlParams = new URLSearchParams(window.location.search);
             return urlParams.get(name);

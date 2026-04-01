@@ -229,11 +229,90 @@
                                                         </div>
                                                         <span class="plant-texttable">{{ $res['location'] }}</span>
 
-                                                        @if ($res['delivered_quantity']!== $res['quantity'] && !empty($res['failure_reason']))
-                                                            <div class="text-danger small mt-1">
-                                                                <strong>Reason:</strong> {{ $res['failure_reason'] }}
-                                                            </div>
-                                                        @endif
+                                                       @php
+    $fullyDelivered  = (int)($res['delivered_quantity'] ?? 0) >= (int)($res['quantity'] ?? 0);
+    $hasFailure      = !empty($res['failure_reason']);
+    $failureText     = $res['failure_reason'] ?? '';
+
+    // Split pipe-separated reasons into array
+    $allReasons      = array_filter(array_map('trim', explode('|', $failureText)));
+
+    // Separate hard failures from soft warnings
+    $hardReasons     = [];
+    $softWarnings    = [];
+
+    foreach ($allReasons as $reason) {
+        $isWarningOnly = str_contains($reason, 'gap')
+            || str_contains($reason, 'flexible')
+            || str_contains($reason, 'interval')
+            || str_contains($reason, 'overlap');
+
+        if ($isWarningOnly) {
+            $softWarnings[] = $reason;
+        } else {
+            $hardReasons[] = $reason;
+        }
+    }
+
+    $isPartial      = !$fullyDelivered && (int)($res['delivered_quantity'] ?? 0) > 0;
+    $isNotScheduled = !$fullyDelivered && (int)($res['delivered_quantity'] ?? 0) === 0;
+@endphp
+
+{{-- ── Hard failures (not/partially scheduled) ── --}}
+@if (!$fullyDelivered && $hasFailure)
+    <div class="schedule-failure-box mt-2">
+
+        @if ($isNotScheduled)
+            <span class="badge badge-danger mb-1">
+                <i class="fa fa-times-circle mr-1"></i> Not Scheduled
+            </span>
+        @elseif ($isPartial)
+            <span class="badge badge-warning mb-1">
+                <i class="fa fa-exclamation-triangle mr-1"></i>
+                Partially Scheduled
+                ({{ $res['delivered_quantity'] }} / {{ $res['quantity'] }} m³)
+            </span>
+        @endif
+
+        @foreach ($hardReasons as $reason)
+            <div class="small mt-1 d-flex align-items-start">
+                <i class="fa fa-times-circle text-danger mr-1 mt-1"></i>
+                <span class="text-danger">{{ $reason }}</span>
+            </div>
+        @endforeach
+
+        @foreach ($softWarnings as $reason)
+            <div class="small mt-1 d-flex align-items-start">
+                @if (str_contains($reason, 'gap') || str_contains($reason, 'flexible'))
+                    <i class="fa fa-info-circle text-warning mr-1 mt-1"></i>
+                    <span class="text-warning">{{ $reason }}</span>
+                @else
+                    <i class="fa fa-clock-o text-info mr-1 mt-1"></i>
+                    <span class="text-info">{{ $reason }}</span>
+                @endif
+            </div>
+        @endforeach
+
+    </div>
+
+{{-- ── Fully scheduled but has soft warnings (gap/interval/overlap) ── --}}
+@elseif ($fullyDelivered && !empty($softWarnings))
+    <div class="mt-2">
+       
+        @foreach ($softWarnings as $warning)
+            <div class="small mt-1 d-flex align-items-start">
+                @if (str_contains($warning, 'gap') || str_contains($warning, 'flexible'))
+                    <i class="fa fa-info-circle text-warning mr-1 mt-1"></i>
+                    <span class="text-warning">{{ $warning }}</span>
+                @else
+                    <i class="fa fa-clock-o text-info mr-1 mt-1"></i>
+                    <span class="text-info">{{ $warning }}</span>
+                @endif
+            </div>
+        @endforeach
+    </div>
+
+@endif
 
                                                         <span class="text small">
                                                             &nbsp; &nbsp; Trips : {{ count($res['schedule']) }}

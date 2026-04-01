@@ -86,7 +86,16 @@
 													<th>Time</th>
 													<th>Interval (Mins)</th>
 													<th>Priority</th>
-													<th>Flexibility</th> 
+													<th>
+    <div class="d-flex align-items-center">
+        Flexibility
+        <div class="filter-check new-filtercheck ml-1">
+            <input type="checkbox" class="filled-in" id="all-flexibility-check"
+                onclick="onMultiFlexibilityClick();">
+            <label class="temperature-label" for="all-flexibility-check"></label>
+        </div>
+    </div>
+</th>
 													<th class="d-none">Interval Deviation (%)</th>
 													<th>Pouring Time</th>
 													<th style="display: none;">Travel To Site (Mins)</th>
@@ -148,12 +157,13 @@
 															onchange="onChangeEvent(this.value, 'priority-order-', {{$order -> id}}, 'priority');" />
 													</td>
 													<td>
-														<input name="orders[{{$orderKey}}][flexibility]"
-															style="width: 50px; text-align: right;" type="number"
-															value="{{$order -> flexibility}}" data-arraykey="{{$orderKey}}"
-															id="flexibility-order-{{$order -> id}}"
-															onchange="onChangeEvent(this.value, 'flexibility-order-', {{$order -> id}}, 'flexibility');" />
-													</td>
+    <input name="orders[{{$orderKey}}][flexibility]"
+        style="width: 50px; text-align: right;" type="number"
+        value="{{$order -> flexibility}}" data-arraykey="{{$orderKey}}"
+        id="flexibility-order-{{$order -> id}}"
+        data-orderid="{{$order -> id}}"
+        onchange="onChangeEvent(this.value, 'flexibility-order-', {{$order -> id}}, 'flexibility');" />
+</td>
 													<td class="d-none">
 														<input name="orders[{{$orderKey}}][interval_deviation]"
 															style="width: 50px; text-align: right;" type="number"
@@ -266,6 +276,20 @@
 	});
 	var selectedDateInput = document.getElementById("schedule_date");
 	var selectedDateLabel = document.getElementById("schedule_date_label");
+	function onMultiFlexibilityClick() {
+    var masterCheck = document.getElementById("all-flexibility-check");
+    var newValue = masterCheck.checked ? 1 : 0;
+
+    // Update all flexibility inputs in the table
+    var flexInputs = document.querySelectorAll('[id^="flexibility-order-"]');
+    flexInputs.forEach(function(input) {
+        input.value = newValue;
+        var idx = input.dataset.arraykey;
+        if (idx !== undefined) {
+            request_orders[idx]['flexibility'] = newValue;
+        }
+    });
+}
 
 	function initalize_orders() {
 		orders = @json($orders);
