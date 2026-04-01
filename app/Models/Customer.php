@@ -22,6 +22,7 @@ class Customer extends Model implements HasMedia
         'contact_person',
         'email_id',
         'country_code_id',
+        'tier',
         'mobile_no',
         'status'
     ];

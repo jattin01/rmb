@@ -32,7 +32,7 @@ class TransitMixerHelper
                 'truck_name' => $tm->truck_name,
                 'truck_capacity' => $tm->truck_capacity,
                 'loading_time' => $tm->loading_time,
-                'free_from' => Carbon::parse($schedule_date . ' ' . $tm->working_hrs_s)->subDays(1)->format(ConstantHelper::SQL_DATE_TIME),
+                'free_from' => Carbon::parse($schedule_date . ' ' . $tm->working_hrs_s)->subDays(2)->format(ConstantHelper::SQL_DATE_TIME),
                 'free_upto' => Carbon::parse($schedule_date . ' ' . $tm->working_hrs_e)->addDays(2)->format(ConstantHelper::SQL_DATE_TIME),
                 'location' => null,
             );

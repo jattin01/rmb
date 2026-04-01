@@ -86,7 +86,16 @@
 													<th>Time</th>
 													<th>Interval (Mins)</th>
 													<th>Priority</th>
-													<th>Flexibility</th> 
+													<th>
+														<div class="d-flex align-items-center">
+															Flexibility
+															<div class="filter-check new-filtercheck ml-1">
+																<input type="checkbox" class="filled-in" id="all-flexibility-check"
+																	onclick="onMultiFlexibilityClick();">
+																<label class="temperature-label" for="all-flexibility-check"></label>
+															</div>
+														</div>
+													</th>
 													<th class="d-none">Interval Deviation (%)</th>
 													<th>Pouring Time</th>
 													<th style="display: none;">Travel To Site (Mins)</th>
@@ -118,7 +127,7 @@
 																data-qty="{{$order-> quantity}}"
 																onclick="onCheck({{$order -> id}});" {{$order ->
 															selected == 1 ? 'checked' : '' }}
-															id="check-order-{{$order -> id}}">
+																id="check-order-{{$order -> id}}">
 															<label class="temperature-label"
 																for="check-order-{{$order -> id}}"></label>
 														</div>
@@ -152,14 +161,15 @@
 															style="width: 50px; text-align: right;" type="number"
 															value="{{$order -> flexibility}}" data-arraykey="{{$orderKey}}"
 															id="flexibility-order-{{$order -> id}}"
+															data-orderid="{{$order -> id}}"
 															onchange="onChangeEvent(this.value, 'flexibility-order-', {{$order -> id}}, 'flexibility');" />
 													</td>
 													<td class="d-none">
 														<input name="orders[{{$orderKey}}][interval_deviation]"
 															style="width: 50px; text-align: right;" type="number"
 															value="{{$order -> interval_deviation}}"
-															min = "0"
-															max = "500"
+															min="0"
+															max="500"
 															id="priority-interval-deviation-{{$order -> id}}"
 															data-arraykey="{{$orderKey}}"
 															onchange="onChangeEvent(this.value, 'priority-interval-deviation-', {{$order -> id}}, 'priority');" />
@@ -214,16 +224,16 @@
 								</div>
 
 								<div style="margin-left:30%; margin-right:25%; margin-top:2%" class="col-md-5">
-									<div class = "row">
+									<div class="row">
 										<div class="d-none col mt-3">
 											<label>Interval Deviation</label>
 										</div>
 
 										<div class="d-none col">
 											<div class="form-group position-relative">
-												<input type="number" name = "interval_deviation" class="form-control search-byinpt padding-right"
-													id = "interval_deviation_input" type ="number" min = "0" max = "500" value="100"
-													style = "width: 100%;">
+												<input type="number" name="interval_deviation" class="form-control search-byinpt padding-right"
+													id="interval_deviation_input" type="number" min="0" max="500" value="100"
+													style="width: 100%;">
 												<img src="{{asset('assets/img/percentage_icon.png')}}" class="fill-percentageimg" alt="">
 											</div>
 										</div>
@@ -235,7 +245,7 @@
 											<span class="form-control search-byinpt padding-right" id="totalQty">0</span>
 										</div>
 									</div>
-									
+
 								</div>
 
 
@@ -255,7 +265,6 @@
 </section>
 
 <script>
-
 	var orders = [];
 	var request_orders = [];
 	orders.forEach(element => {
@@ -266,6 +275,21 @@
 	});
 	var selectedDateInput = document.getElementById("schedule_date");
 	var selectedDateLabel = document.getElementById("schedule_date_label");
+
+	function onMultiFlexibilityClick() {
+		var masterCheck = document.getElementById("all-flexibility-check");
+		var newValue = masterCheck.checked ? 1 : 0;
+
+		// Update all flexibility inputs in the table
+		var flexInputs = document.querySelectorAll('[id^="flexibility-order-"]');
+		flexInputs.forEach(function(input) {
+			input.value = newValue;
+			var idx = input.dataset.arraykey;
+			if (idx !== undefined) {
+				request_orders[idx]['flexibility'] = newValue;
+			}
+		});
+	}
 
 	function initalize_orders() {
 		orders = @json($orders);
@@ -283,40 +307,37 @@
 		});
 	}
 
-	function onChangeEvent(val, element, order_id, key)
-	{
+	function onChangeEvent(val, element, order_id, key) {
 		var ele = document.getElementById(element + order_id);
 		idx = ele.dataset.arraykey;
 		request_orders[idx][key] = val;
 	}
 
 	const checkboxes = document.querySelectorAll('.order');
-    const totalQtyEl = document.getElementById('totalQty');
-    calculateTotal();
+	const totalQtyEl = document.getElementById('totalQty');
+	calculateTotal();
 
-    function calculateTotal() {
+	function calculateTotal() {
 
-        let total = 0;
-        
-        checkboxes.forEach(cb => {
-            if (cb.checked) {
+		let total = 0;
 
-                total += parseInt(cb.dataset.qty, 10);
-            }
-        });
-        totalQtyEl.textContent = total;
-    }
+		checkboxes.forEach(cb => {
+			if (cb.checked) {
 
-	function onCheck(order_id)
-	{
+				total += parseInt(cb.dataset.qty, 10);
+			}
+		});
+		totalQtyEl.textContent = total;
+	}
+
+	function onCheck(order_id) {
 		var ele = document.getElementById("check-order-" + order_id);
 		idx = ele.dataset.arraykey;
 		request_orders[idx].selected = request_orders[idx].selected == 0 ? 1 : 0;
 		calculateTotal();
 	}
 
-	function onMultiCheckClick()
-	{
+	function onMultiCheckClick() {
 		var multi_check_ele = document.getElementById("all-order-check");
 		if (multi_check_ele.checked) {
 			request_orders.forEach((obj) => {
@@ -338,7 +359,7 @@
 		calculateTotal();
 	}
 
-	document.addEventListener('DOMContentLoaded', function () {
+	document.addEventListener('DOMContentLoaded', function() {
 
 		initalize_orders();
 		setInputsFromQueryParams();
@@ -352,7 +373,7 @@
 			editable: true,
 			dayMaxEvents: true, // allow "more" link when too many events
 			selectable: true,
-			select: function (start) {
+			select: function(start) {
 				// Update the hidden input with the selected date
 				selectedDateInput.value = start.startStr;
 				selectedDateLabel.innerHTML = moment(start.startStr).format("dddd, D MMMM YYYY");
@@ -361,13 +382,12 @@
 		calendar.render();
 	});
 
-	function updateSelectedOrders()
-	{
+	function updateSelectedOrders() {
 		localStorage.setItem("interval_deviation", document.getElementById("interval_deviation_input").value);
 		// Get form action and add custom JSON data
 		var form = document.getElementById('updateOrderForm');
 		// Submit the form
-		
+
 		form.submit();
 	}
 

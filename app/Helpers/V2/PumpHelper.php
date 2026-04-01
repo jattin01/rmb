@@ -35,7 +35,7 @@ class PumpHelper
                 'pump_name' => $p->pump_name,
                 'pump_type' => $p->type,
                 'pump_capacity' => $p->pump_capacity,
-                'free_from' => Carbon::parse($schedule_date . ' ' . $p->working_hrs_s)->subDays(1)->format(ConstantHelper::SQL_DATE_TIME),
+                'free_from' => Carbon::parse($schedule_date . ' ' . $p->working_hrs_s)->subDays(2)->format(ConstantHelper::SQL_DATE_TIME),
                 'free_upto' => Carbon::parse($schedule_date . ' ' . $p->working_hrs_e)->addDays(2)->format(ConstantHelper::SQL_DATE_TIME),
                 'location' => null,
                 'order_id' => null,
@@ -65,8 +65,7 @@ class PumpHelper
         array &$slots = [],
         $qc,
         $insp,
-        $travel,
-        $loading
+        $travel
     ) {
         try {
             $order = SelectedOrder::find($order_id);
@@ -83,7 +82,7 @@ class PumpHelper
                 return $aStart->lte($bEnd) && $aEnd->gte($bStart);
             };
 
-            $canUse = function ($pump) use ($scheduleData, $reqCap, $reqType, $location, $startNeed, $endNeed, &$slots, $overlaps, $qc, $insp, $loading, $travel) {
+            $canUse = function ($pump) use ($scheduleData, $reqCap, $reqType, $location, $startNeed, $endNeed, &$slots, $overlaps, $qc, $insp,$travel) {
                 if (!isset($pump['pump_id'], $pump['pump_name'], $pump['pump_capacity'], $pump['pump_type'], $pump['free_from'], $pump['free_upto'])) {
                     return [false, null, null];
                 }
@@ -425,19 +424,29 @@ class PumpHelper
 
 
         $slot_start_str = $slot_start->format('Y-m-d H:i:s');
+        $inspEnd = $slot_start->copy()->addMinutes($nextData->insp_time);
+        $installStart = $inspEnd->copy()->addMinute();
+        $installEnd = $installStart->copy()->addMinutes($nextData->install_time);
+        $waitingStart = $installEnd->copy()->addMinute();
+        $waitingEnd = Carbon::parse($nextData->pouring_start)->copy()->subMinute();
+        $waitingTime = $waitingStart->diffInMinutes($waitingEnd);
+        
         $nextData->update([
             'qc_time' => 0,
             'travel_time' => 0,
-            'travel_start' => $slot_start_str,
-            'travel_end' => $slot_start_str,
             'qc_start' => $slot_start_str,
             'qc_end' => $slot_start_str,
-            'waiting_time' => $waiting_time,
-            'waiting_start' => Carbon::parse($nextData->waiting_start)->subMinutes($waiting)->format('Y-m-d H:i:s'),
+            'travel_start' => $slot_start_str,
+            'travel_end' => $slot_start_str,
             'insp_start' => $slot_start_str,
-            'insp_end' => Carbon::parse($nextData->insp_end)->subMinutes($waiting)->format('Y-m-d H:i:s'),
-            'install_start' => Carbon::parse($nextData->install_start)->subMinutes($waiting)->format('Y-m-d H:i:s'),
-            'install_end' => Carbon::parse($nextData->install_end)->subMinutes($waiting)->format('Y-m-d H:i:s'),
+            'insp_end' => $inspEnd->format('Y-m-d H:i:s'),
+            'install_start' => $installStart->format('Y-m-d H:i:s'),
+            'install_end' => $installEnd->format('Y-m-d H:i:s'),
+            'waiting_time' => $waitingTime,
+            'waiting_start' => $waitingStart->format('Y-m-d H:i:s'),
+            'waiting_end'=>  $waitingEnd->format('Y-m-d H:i:s'),
+            
+            
         ]);
         $nextData->refresh();
         Log::info("updated" . $nextData->insp_start);

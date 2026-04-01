@@ -209,7 +209,7 @@ class SelectedOrder extends Model
     {
         return $this -> belongsTo(Customer::class, 'customer_id', 'id');
     }
-
+    
     public function order_temp_control_display()
     {
         $tempControl = $this -> order_temp_control() -> get();

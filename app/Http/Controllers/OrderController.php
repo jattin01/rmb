@@ -460,6 +460,8 @@ class OrderController extends Controller
                     break;
                 }
                 $order['og_order_id'] = $order['id'];
+                $order['location']= CustomerProjectSite::find($order['site_id'])->name;
+                  
                 $order['user_id'] = auth()->user()->id;
                 unset($order['created_at']);
                 unset($order['updated_at']);
@@ -481,6 +483,7 @@ class OrderController extends Controller
                 return redirect()->back()->with(ConstantHelper::WARNING, __("message.action_already_preformed", ['static' => __("static.publish")]));
             }
             SelectedOrder::insert($orders);
+
             DB::commit();
             return redirect()->route("orders.schedule.step.two", [
                 'company_id' => $request->company_id,
@@ -542,7 +545,6 @@ class OrderController extends Controller
                 'groupCompany' => $groupCompany
             ]);
         } catch (Exception $ex) {
-            dd($ex->getMessage());
             return view('components.common.internal_error', ['message' => $ex->getMessage()]);
         }
     }
@@ -644,7 +646,7 @@ class OrderController extends Controller
                 // dd($order);
 
                 $selectedOrder = SelectedOrder::find($order['order_id']);
-
+                
 
                 $selectedOrder->fill(
                     [
@@ -656,7 +658,7 @@ class OrderController extends Controller
                         'interval_deviation' => $order['interval_deviation'],
                         'pouring_time' => $order['pouring_time'],
                         'priority' => $order['priority'],
-                        'flexibility' => $order['flexibility']
+                        'flexibility' => $order['flexibility'],
                     ]
                 );
 
@@ -2000,4 +2002,5 @@ class OrderController extends Controller
             )
         );
     }
+
 }

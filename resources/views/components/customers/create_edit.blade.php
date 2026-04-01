@@ -83,11 +83,22 @@
                                 <div class="col-md-6">
                                     <div class="profileinput-box form-group position-relative">
                                         <label class="selext-label">Company</label>
-                                        <select class="" id = "group_companies_dropdown" name="group_companies[]" multiple = "multiple">
+                                        <select class="" id="group_companies_dropdown" name="group_companies[]" multiple="multiple">
                                             @foreach(@$groupCompanies as $company)
                                             <option value="{{$company->value}}" {{isset($customerGroupCompanies) && in_array($company -> value, $customerGroupCompanies -> toArray()) ? 'selected' : ''}}>{{$company->label}}</option>
                                             @endforeach
                                         </select>
+                                    </div>
+                                </div>
+                                <div class="col-md-6">
+                                    <div class="profileinput-box form-group position-relative">
+                                        <label class="selext-label">Tier</label>
+                                        <input
+                                            type="number"
+                                            name="tier"
+                                            class="form-control user-profileinput"
+                                            value="{{ old('tier', $customer->tier ?? 999) }}"
+                                            placeholder="Enter Tier">
                                     </div>
                                 </div>
 
@@ -95,39 +106,39 @@
                         </div>
                         <div class="col-md-4">
                             <!-- <div class="col-md-4"> -->
-                                <div class="active-switch mb-4 d-flex justify-content-end align-items-center">
-                                    <label class="switch">
-                                        <input type="checkbox" id="staus" name="status"
-                                            value="{{ @$customer->status ?? 'Active' }}" class="activeclass"
-                                            onclick="toggleStatus(this, 'status')"
-                                            @if(@$customer->status == 'Active' || !isset($customer)) checked @endif/>
-                                        <div class="slider round">
-                                            <span class="{{ @$customer->status == 'Inactive' ? 'swinactive' : 'swactive' }}"></span>
-                                        </div>
-                                    </label>
-                                    <p id="status">{{@$customer->status ? $customer->status : 'Active'}}</p>
-                                </div>
-
-                                <label class="company-logolabel">Company Logo</label>
-                                <div class="darg-dropbox text-center" id="drop-area">
-                                    <h6>Drag &amp; Drop OR Upload</h6>
-                                    <p>Max size: 05 MB</p>
-                                    <div class="upload-btn-wrapper new-browsebtn mt-3">
-                                        <button class="uploadBtn">
-                                            Browse
-                                        </button>
-                                        <input type="file" name="image" id="customerImage" onchange="renderCustomerImage(this,'preview_image','preview_image_link')">
+                            <div class="active-switch mb-4 d-flex justify-content-end align-items-center">
+                                <label class="switch">
+                                    <input type="checkbox" id="staus" name="status"
+                                        value="{{ @$customer->status ?? 'Active' }}" class="activeclass"
+                                        onclick="toggleStatus(this, 'status')"
+                                        @if(@$customer->status == 'Active' || !isset($customer)) checked @endif/>
+                                    <div class="slider round">
+                                        <span class="{{ @$customer->status == 'Inactive' ? 'swinactive' : 'swactive' }}"></span>
                                     </div>
-                                </div>
+                                </label>
+                                <p id="status">{{@$customer->status ? $customer->status : 'Active'}}</p>
+                            </div>
 
-                                <div class="drag-dropimgbox mt-3" style="display: {{ isset($customer->image[0]->original_url) ? 'block' : 'none'}};">
-                                    <span class="red-crossimgbox" style="cursor:pointer;">
-                                        <i class="fa fa-times" aria-hidden="true"></i>
-                                    </span>
-                                    <a id="preview_image_link" href="{{ @$customer->image[0] ?  @$customer->image[0]->original_url : 'javascript:void(0)' }}" target="_blank">
-                                    <img src="{{@$customer->image[0]->original_url ? @$customer->image[0]->original_url : asset('assets/img/course2.png')}}" alt="preview image" id="preview_image">
-                                    </a>
+                            <label class="company-logolabel">Company Logo</label>
+                            <div class="darg-dropbox text-center" id="drop-area">
+                                <h6>Drag &amp; Drop OR Upload</h6>
+                                <p>Max size: 05 MB</p>
+                                <div class="upload-btn-wrapper new-browsebtn mt-3">
+                                    <button class="uploadBtn">
+                                        Browse
+                                    </button>
+                                    <input type="file" name="image" id="customerImage" onchange="renderCustomerImage(this,'preview_image','preview_image_link')">
                                 </div>
+                            </div>
+
+                            <div class="drag-dropimgbox mt-3" style="display: {{ isset($customer->image[0]->original_url) ? 'block' : 'none'}};">
+                                <span class="red-crossimgbox" style="cursor:pointer;">
+                                    <i class="fa fa-times" aria-hidden="true"></i>
+                                </span>
+                                <a id="preview_image_link" href="{{ @$customer->image[0] ?  @$customer->image[0]->original_url : 'javascript:void(0)' }}" target="_blank">
+                                    <img src="{{@$customer->image[0]->original_url ? @$customer->image[0]->original_url : asset('assets/img/course2.png')}}" alt="preview image" id="preview_image">
+                                </a>
+                            </div>
 
 
                         </div>
@@ -146,17 +157,16 @@
 </section>
 <style>
     #drop-area.highlight {
-    border-color: purple;
-}
+        border-color: purple;
+    }
 </style>
 @endsection
 
 @section('scripts')
 <script>
-
     $(document).ready(function(e) {
         $('#group_companies_dropdown').select2({
-            allowClear : true
+            allowClear: true
         });
         initMap();
     });
@@ -212,7 +222,7 @@
     dropArea.addEventListener('drop', handleDrop, false);
 
     function handleDrop(e) {
-        console.log("e:",e);
+        console.log("e:", e);
         const dt = e.dataTransfer;
         const files = dt.files;
 
@@ -240,8 +250,8 @@
     }
 
     // Remove Image
-    $('.red-crossimgbox').click(function(){
-        $("#preview_image").attr('src',"");
+    $('.red-crossimgbox').click(function() {
+        $("#preview_image").attr('src', "");
         $("#customerImage").val("");
         $(".drag-dropimgbox").hide();
     })
@@ -262,13 +272,13 @@
             var fileType = input.files[0].type;
             var size = input.files[0].size;
 
-            if(((size / 1024)/1024) > 5){
+            if (((size / 1024) / 1024) > 5) {
                 input.value = '';
                 $('#' + render_place_id + '').attr('src', '');
                 Swal.fire(
-                    'Warning!', 'You can upload maximum of 5 MB file.<br>Kindly select again.', 'warning',{
+                    'Warning!', 'You can upload maximum of 5 MB file.<br>Kindly select again.', 'warning', {
                         html: true,
-                });
+                    });
             }
 
             if (fileType !== 'image/jpeg' && fileType !== 'image/png' && fileType !== 'image/jpg') {
@@ -287,10 +297,10 @@
 
             var reader = new FileReader();
 
-            reader.onload = function (e) {
+            reader.onload = function(e) {
                 $('#' + render_place_id + '').attr('src', e.target.result);
                 $('#' + render_place_id + '').show();
-                if(render_link_id){
+                if (render_link_id) {
                     $('#' + render_link_id + '').attr('href', e.target.result);
                     $('#' + render_link_id + '').attr('target', '_blank');
                     $('#' + render_link_id + '').show();
@@ -308,19 +318,19 @@
     async function initMap() {
         // AutoComplete Address
         autoComplete = new google.maps.places.Autocomplete(document.getElementById("search_in_map"), {
-                            types: ['geocode'],
-                        });
+            types: ['geocode'],
+        });
         console.log(autoComplete);
 
-        autoComplete.addListener('place_changed', function(){
+        autoComplete.addListener('place_changed', function() {
             var place = autoComplete.getPlace();
             console.log("place:", place);
             if (!place.geometry) {
                 Swal.fire({
-                        type: 'error',
-                        title: 'Oops...',
-                        text: 'Location Not Found!',
-                    });
+                    type: 'error',
+                    title: 'Oops...',
+                    text: 'Location Not Found!',
+                });
                 return;
             }
 
@@ -329,13 +339,11 @@
             var address_components = place?.address_components;
 
             address_components.forEach((address, index, array) => {
-                if(address.types[0] == 'country'){
+                if (address.types[0] == 'country') {
                     $('#country').val(address.long_name);
                 }
             });
         });
     }
-
-
 </script>
 @endsection
