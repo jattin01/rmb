@@ -48,8 +48,8 @@ class BatchingPlantHelper
             $bps_availabilty[] = array(
                 'plant_name' => $bp->plant_name,
                 'plant_capacity' => $bp->capacity,
-                'free_from' => Carbon::parse($schedule_date . ' ' . $bp->shift_start)->subDays(2)->format(ConstantHelper::SQL_DATE_TIME),
-                'free_upto' => Carbon::parse($schedule_date . ' ' . $bp->shift_end)->addDays(2)->format(ConstantHelper::SQL_DATE_TIME),
+                'free_from' => Carbon::parse($schedule_date . ' ' . $bp->shift_start)->subHours(6)->format(ConstantHelper::SQL_DATE_TIME),
+                'free_upto' => Carbon::parse($schedule_date . ' ' . $bp->shift_end)->addHours(6)->format(ConstantHelper::SQL_DATE_TIME),
 
                 // 'free_from' => Carbon::parse($schedule_date . ' ' . $p->working_hrs_s)->subDays(1)->format(ConstantHelper::SQL_DATE_TIME),
                 // 'free_upto' => Carbon::parse($schedule_date . ' ' . $p->working_hrs_e)->addDays(2)->format(ConstantHelper::SQL_DATE_TIME),
