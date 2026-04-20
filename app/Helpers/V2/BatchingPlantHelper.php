@@ -48,11 +48,11 @@ class BatchingPlantHelper
             $bps_availabilty[] = array(
                 'plant_name' => $bp->plant_name,
                 'plant_capacity' => $bp->capacity,
-                'free_from' => Carbon::parse($schedule_date . ' ' . $bp->shift_start)->subHours(6)->format(ConstantHelper::SQL_DATE_TIME),
-                'free_upto' => Carbon::parse($schedule_date . ' ' . $bp->shift_end)->addHours(6)->format(ConstantHelper::SQL_DATE_TIME),
+                //'free_from' => Carbon::parse($schedule_date . ' ' . $bp->shift_start)->subHours(6)->format(ConstantHelper::SQL_DATE_TIME),
+                //'free_upto' => Carbon::parse($schedule_date . ' ' . $bp->shift_end)->addHours(6)->format(ConstantHelper::SQL_DATE_TIME),
 
-                // 'free_from' => Carbon::parse($schedule_date . ' ' . $p->working_hrs_s)->subDays(1)->format(ConstantHelper::SQL_DATE_TIME),
-                // 'free_upto' => Carbon::parse($schedule_date . ' ' . $p->working_hrs_e)->addDays(2)->format(ConstantHelper::SQL_DATE_TIME),
+                 'free_from' => Carbon::parse($schedule_date . ' ' . $bp->shift_start)->subDays(1)->format(ConstantHelper::SQL_DATE_TIME),
+                 'free_upto' => Carbon::parse($schedule_date . ' ' . $bp->shift_end)->addDays(2)->format(ConstantHelper::SQL_DATE_TIME),
 
                 'location' => $bp?->location,
             );
@@ -93,7 +93,76 @@ class BatchingPlantHelper
         return $minValue;
     }
 
-  
+  public static function getAvailableBatchingPlants2(
+    $batching_plants,
+    $location,
+    $loading_start,
+    $loading_end,
+    $restriction_start,
+    $restriction_end,
+    $assignedPlants,
+    $assignedPlant = null,
+) {
+    if (
+        isset($restriction_start, $restriction_end) &&
+        Carbon::parse($loading_start)->between(
+            Carbon::parse($restriction_start),
+            Carbon::parse($restriction_end)
+        )
+    ) {
+        return null;
+    }
+
+    $loadingStart = Carbon::parse($loading_start);
+    $loadingEnd   = Carbon::parse($loading_end);
+   
+    // ── Fixed plant — only return that exact plant ────────────────────────
+    if ($assignedPlant !== null) {
+        foreach ($batching_plants as $key => $plant) {
+            if ($plant['plant_name'] !== $assignedPlant) continue;
+            if ($plant['location']   !== $location)      continue;
+            if (Carbon::parse($plant['free_from'])->gt($loadingStart)) continue;
+            if (Carbon::parse($plant['free_upto'])->lt($loadingEnd))   continue;
+            return ['data' => $plant, 'index' => $key];
+        }
+        return null;
+    }
+
+    // ── No fixed plant — collect all available plants, apply FIFO ────────
+    // FIFO = plant whose free_from is earliest goes first (it was freed longest ago)
+    $available = [];
+
+    foreach ($batching_plants as $key => $plant) {
+        if ($plant['location'] !== $location)                          continue;
+        if (Carbon::parse($plant['free_from'])->gt($loadingStart))    continue;
+        if (Carbon::parse($plant['free_upto'])->lt($loadingEnd))      continue;
+
+        $available[] = [
+            'data'      => $plant,
+            'index'     => $key,
+            'free_from' => Carbon::parse($plant['free_from'])->timestamp,
+            'preferred' => in_array($plant['plant_name'], $assignedPlants),
+        ];
+    }
+
+    if (empty($available)) {
+        return null;
+    }
+
+    // Sort: preferred (already used by this order) first,
+    // then by free_from ascending (FIFO — earliest freed plant first)
+    usort($available, function ($a, $b) {
+        // Preferred plant comes first
+        if ($a['preferred'] !== $b['preferred']) {
+            return $b['preferred'] <=> $a['preferred']; // true (1) before false (0)
+        }
+        // Among equals — earliest free_from wins (FIFO)
+        return $a['free_from'] <=> $b['free_from'];
+    });
+
+    $best = $available[0];
+    return ['data' => $best['data'], 'index' => $best['index']];
+}
 public static function getAvailableBatchingPlants(
     $batching_plants,
     $location,
@@ -104,6 +173,7 @@ public static function getAvailableBatchingPlants(
     $assignedPlants,
     $assignedPlant = null,
 ) {
+
     // Restriction window check
     if (
         isset($restriction_start, $restriction_end) &&

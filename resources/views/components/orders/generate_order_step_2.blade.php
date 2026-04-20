@@ -143,7 +143,7 @@
 															onchange="onChangeEvent(this.value, 'time-order-', {{$order -> id}}, 'time');" />
 													</td>
 													<td>
-														<input name="orders[{{$orderKey}}][interval]"
+														<input name="orders[{{$orderKey}}][interval]" 
 															style="width: 50px; text-align: right;" type="number"
 															value="{{$order -> interval}}" data-arraykey="{{$orderKey}}"
 															id="interval-order-{{$order -> id}}"
@@ -300,6 +300,7 @@
 				selected: element.selected,
 				priority: element.priority == 9999 ? null : element.priority,
 				interval: element.interval,
+				loading_time : element.loading_time,
 				travel_to_site: element.travel_to_site,
 				return_to_plant: element.return_to_plant,
 				time: moment(element.delivery_date).format("HH:mm")
@@ -387,6 +388,9 @@
 		// Get form action and add custom JSON data
 		var form = document.getElementById('updateOrderForm');
 		// Submit the form
+		if (!form.reportValidity()) {
+        return; // stop if invalid
+    }
 
 		form.submit();
 	}

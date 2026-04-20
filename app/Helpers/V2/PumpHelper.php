@@ -282,6 +282,7 @@ class PumpHelper
 
                     $qcTime = $slotType === 'first' ? $scheduleData->qc_time : 0;
                     $travelTime = $slotType === 'first' ? $order->travel_to_site : 0;
+                    Log::info("Slot Type: " . $slotType . " QC Time: " . $qcTime . " Travel Time: " . $travelTime);
 
                     $returnTime = match ($slotType) {
                         'first' => ScheduleService::getDistance($order->site_id, $nextSlot['location']),
