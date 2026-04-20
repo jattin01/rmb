@@ -110,6 +110,7 @@ class CustomerController extends Controller
                 $customer->contact_person = $request->contact_person;
                 $customer->mobile_no = $request->mobile_no;
                 $customer->email_id = $request->email_id;
+                $customer->tier = $request->tier;
                 $customer->status = $request->input('status', 'Inactive');
                 $customer->save();
                 // Update Customer's Address
@@ -138,6 +139,7 @@ class CustomerController extends Controller
                 $customer->group_id = auth() -> user() -> group_id;
                 $customer->code = $request->code;
                 $customer->name = $request->name;
+                $customer->tier = $request->tier;
                 $customer->type = 'Credit';
                 $customer->contact_person = $request->contact_person;
                 $customer->mobile_no = $request->mobile_no;
