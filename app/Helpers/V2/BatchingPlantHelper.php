@@ -172,8 +172,8 @@ public static function getAvailableBatchingPlants(
     $restriction_end,
     $assignedPlants,
     $assignedPlant = null,
+    $plantBusySlots = [],
 ) {
-
     // Restriction window check
     if (
         isset($restriction_start, $restriction_end) &&
@@ -184,60 +184,101 @@ public static function getAvailableBatchingPlants(
     ) {
         return null;
     }
-    
 
     $loadingStart = Carbon::parse($loading_start);
     $loadingEnd   = Carbon::parse($loading_end);
 
-    // If order already has a fixed plant — ONLY return that plant or null
-    if ($assignedPlant !== null) {
-        foreach ($batching_plants as $key => $plant) {
-            if ($plant['plant_name'] !== $assignedPlant) {
-                continue;
+    // ── Helper: check if loading window overlaps any busy slot for a given plant ──
+    $hasPlantConflict = function (string $plantName) use ($plantBusySlots, $loadingStart, $loadingEnd): bool {
+        foreach ($plantBusySlots as $slot) {
+            if (($slot['plant_id'] ?? null) !== $plantName) continue;
+
+            $slotStart = $slot['start'] instanceof Carbon ? $slot['start'] : Carbon::parse($slot['start']);
+            $slotEnd   = $slot['end'] instanceof Carbon ? $slot['end'] : Carbon::parse($slot['end']);
+
+            // Overlap: loadingStart < slotEnd AND loadingEnd > slotStart
+            if ($loadingStart->lt($slotEnd) && $loadingEnd->gt($slotStart)) {
+                return true; // conflict found
             }
-            if ($plant['location'] !== $location) {
-                continue;
-            }
-            if (Carbon::parse($plant['free_from'])->gt($loadingStart)) {
-                continue;
-            }
-            if (Carbon::parse($plant['free_upto'])->lt($loadingEnd)) {
-                continue;
-            }
-            return ['data' => $plant, 'index' => $key];
         }
-        // Assigned plant exists but is not available at this time
-        return null;
+        return false;
+    };
+
+    // ── If order already has a fixed plant — ONLY return that plant's earliest-free slot ──
+    if ($assignedPlant !== null) {
+        $assignedCandidates = [];
+
+        foreach ($batching_plants as $key => $plant) {
+            if ($plant['plant_name'] !== $assignedPlant) continue;
+            if ($plant['location']   !== $location)      continue;
+            if (Carbon::parse($plant['free_from'])->gt($loadingStart)) continue;
+            if (Carbon::parse($plant['free_upto'])->lt($loadingEnd))   continue;
+
+            // ── NEW: Also check plant_busy_slots for conflicts ──
+            if (!empty($plantBusySlots) && $hasPlantConflict($plant['plant_name'])) {
+                continue;
+            }
+
+            $assignedCandidates[] = [
+                'data'      => $plant,
+                'index'     => $key,
+                'free_from' => Carbon::parse($plant['free_from'])->timestamp,
+            ];
+        }
+
+        if (empty($assignedCandidates)) {
+            return null;
+        }
+
+        // FIFO — earliest free_from wins (the slot that has been idle longest)
+        usort($assignedCandidates, fn($a, $b) => $a['free_from'] <=> $b['free_from']);
+
+        return [
+            'data'  => $assignedCandidates[0]['data'],
+            'index' => $assignedCandidates[0]['index'],
+        ];
     }
 
-    // No fixed plant yet — find preferred or fallback
-    $preferred = null;
-    $fallback  = null;
+    // ── No fixed plant yet — collect every eligible slot, then FIFO pick ──
+    $preferred = []; // plants already assigned elsewhere (reuse for consistency)
+    $fallback  = []; // never-used plants
 
     foreach ($batching_plants as $key => $plant) {
+        if ($plant['location'] !== $location) continue;
+        if (Carbon::parse($plant['free_from'])->gt($loadingStart)) continue;
+        if (Carbon::parse($plant['free_upto'])->lt($loadingEnd))   continue;
 
-        if ($plant['location'] !== $location) {
-            continue;
-        }
-        if (Carbon::parse($plant['free_from'])->gt($loadingStart)) {
-            continue;
-        }
-        if (Carbon::parse($plant['free_upto'])->lt($loadingEnd)) {
+        // ── NEW: Also check plant_busy_slots for conflicts ──
+        if (!empty($plantBusySlots) && $hasPlantConflict($plant['plant_name'])) {
             continue;
         }
 
-        if ($preferred === null && in_array($plant['plant_name'], $assignedPlants)) {
-            $preferred = ['data' => $plant, 'index' => $key];
-            break;
-        }
+        $row = [
+            'data'      => $plant,
+            'index'     => $key,
+            'free_from' => Carbon::parse($plant['free_from'])->timestamp,
+        ];
 
-        if ($fallback === null) {
-            $fallback = ['data' => $plant, 'index' => $key];
+        if (in_array($plant['plant_name'], $assignedPlants)) {
+            $preferred[] = $row;
+        } else {
+            $fallback[] = $row;
         }
     }
 
-    return $preferred ?? $fallback;
-}  
+    // Sort both pools by earliest free_from (FIFO)
+    usort($preferred, fn($a, $b) => $a['free_from'] <=> $b['free_from']);
+    usort($fallback,  fn($a, $b) => $a['free_from'] <=> $b['free_from']);
+
+    $winner = $preferred[0] ?? $fallback[0] ?? null;
+
+    if (!$winner) return null;
+
+    return [
+        'data'  => $winner['data'],
+        'index' => $winner['index'],
+    ];
+}
 
     public static function getAvailableBatchingPlantsNew(
         $batching_plants,

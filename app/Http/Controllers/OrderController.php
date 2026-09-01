@@ -8,6 +8,7 @@ use App\Helpers\BatchingPlantHelper;
 use App\Helpers\CommonHelper;
 use App\Helpers\ConstantHelper;
 use App\Helpers\GroupCompanyHelper;
+use App\Exports\ScheduleExport;
 use App\Helpers\LiveOrderHelper;
 use App\Helpers\OrderApprovalHelper;
 use App\Helpers\OrderHelper;
@@ -19,6 +20,7 @@ use App\Helpers\V2\OrderScheduleHelper as OrderScheduleHelperV2;
 use App\Helpers\PumpHelper;
 use App\Helpers\RouteConstantHelper;
 use App\Helpers\TransitMixerHelper;
+
 use App\Imports\OrderImport;
 use App\Imports\PumpImport;
 use App\Imports\TransitMixerImport;
@@ -1838,7 +1840,6 @@ class OrderController extends Controller
 
 
             DB::commit();
-            // dd($request->quantity);
             if ($request->order_id) {
                 return redirect()->route('web.order.live.schedule')->with(ConstantHelper::SUCCESS, 'Order updated successfully');
             }
@@ -2029,82 +2030,93 @@ class OrderController extends Controller
     }
     private function calculateTolerance(SelectedOrder $order)
     {
-        $baseInterval = max((int)($order->interval), 1);
-        $orderVolume = (float)($order->quantity ?? 0);
-        $order->item_type = strtolower($order->structural_reference_details?->name ?? '');
-        $itemType = strtolower($order->item_type ?? 'slab');
+        // ── Resolve the timing inputs ─────────────────────────────────────────
+        $pouringTime  = max(1, (int) ($order->pouring_time ?? 0));
+        $loadingTime  = max(1, (int) ($order->loading_time ?? 0));
+        $orderVolume  = (float) ($order->quantity ?? 0);
+        $baseInterval = $order->pump ? max($pouringTime, $loadingTime, $order->interval) : max($loadingTime, $order->interval);
 
-        // STEP 1: Tolerance % based on volume
+
+        // ── Volume-driven tolerance % ─────────────────────────────────────────
         if ($orderVolume <= 100) {
-            $tolerancePercent = 15;  // ±15% for small
-        } else if ($orderVolume <= 500) {
-            $tolerancePercent = 10;  // ±10% for small-medium
+            $tolerancePercent = 15;
+        } elseif ($orderVolume <= 500) {
+            $tolerancePercent = 10;
         } elseif ($orderVolume <= 1000) {
-            $tolerancePercent = 8;   // ±8% for medium
+            $tolerancePercent = 8;
         } elseif ($orderVolume <= 2000) {
-            $tolerancePercent = 6;   // ±6% for large
+            $tolerancePercent = 6;
         } else {
-            $tolerancePercent = 5;   // ±5% for very large
-        }
-
-        // STEP 2: Refine by item type
-        switch ($itemType) {
-            case 'column':
-                $tolerancePercent = min($tolerancePercent, 5);  // Stricter
-                break;
-            case 'wall':
-                $tolerancePercent = min($tolerancePercent, 7);  // Moderate
-                break;
-            case 'slab':
-            case 'raft':
-            default:
-                $tolerancePercent = min($tolerancePercent, 20);  // Flexible
-                break;
+            $tolerancePercent = 5;
         }
 
         if ($order->flexibility) {
-            $tolerancePercent = max($tolerancePercent, 15); // If order is marked flexible, allow more tolerance
+            $tolerancePercent = max($tolerancePercent, 15);  // flexible: at least ±15%
         } else {
-            $tolerancePercent = min($tolerancePercent, 15); // If not flexible, be stricter
+            $tolerancePercent = min($tolerancePercent, 15);  // non-flexible: cap at ±15%
         }
 
-        // STEP 3: Calculate range
-        $toleranceMinutes = (int) ceil(($baseInterval * $tolerancePercent) / 100);
-        $minInterval      = max($baseInterval - $toleranceMinutes, 1);
-        $maxInterval      = max($baseInterval + $toleranceMinutes, $minInterval);
+        $minInterval = $order->pump ? max($pouringTime, $loadingTime) : $loadingTime;
 
+        // ── max_interval = pouring_time + tolerance band ──────────────────────
+        // For flexible orders, hard cap at 40 minutes regardless of math.
+        if ($order->flexibility) {
+            $maxInterval = 40 - $minInterval;
+        } else {
+            $maxInterval = $baseInterval;
+        }
 
         $order->min_interval = $minInterval;
         $order->max_interval = $maxInterval;
-        $order->tolerance = $tolerancePercent;
-        $order->is_critical = $order->loading_time >= $order->max_interval;
+        $order->tolerance    = $tolerancePercent;
+        $order->is_critical = ($loadingTime >= ($maxInterval + $pouringTime));
     }
 
     private function getMaximumAcceptableDelay(SelectedOrder $order)
     {
-        $baseInterval = $order->interval;
-        $quantity = (float)($order->quantity ?: 100);
-        $batchSize = 8;
+        // Use the validated min_interval (= pouring_time) as the planning unit
+        // since that is the realistic per-trip footprint at the plant.
+        $planningInterval = max(1, (int) ($order->min_interval ?? $order->pouring_time ?? 1));
 
-        // Calculate number of trips
-        $numberOfTrips = max(1, ceil($quantity / $batchSize));
+        $quantity   = (float) ($order->quantity ?: 100);
+        $batchSize  = 8;
+        $numTrips   = max(1, ceil($quantity / $batchSize));
+        $expected   = $numTrips * $planningInterval;
 
-        // Expected total duration
-        $expectedTotalDuration = $numberOfTrips * $baseInterval;
+        // Standard cap: 25% of total expected duration; large orders get 20%
+        $maxDelayPercent = ($quantity >= 2000) ? 0.20 : 0.25;
+        $maxDelayMins    = (int) ceil($expected * $maxDelayPercent);
 
-        // Max delay = 25% of total
-        $maxDelayPercent = 0.25;
-        $maxDelayMinutes = ceil($expectedTotalDuration * $maxDelayPercent);
+        // Min/max envelope
+        $maxDelayMins = max($maxDelayMins, 480);    // at least 30 minutes
+        $maxDelayMins = min($maxDelayMins, 480);   // at most 8 hours
 
-        // Caps
-        $maxDelayMinutes = min($maxDelayMinutes, 480);  // 8 hours max
-        $maxDelayMinutes = max($maxDelayMinutes, 30);   // 30 min min
+        $order->max_delay = $maxDelayMins;
+        if ($order->flexibility)
+            $order->max_delay = 240;
 
-        // Large orders: stricter
-        if ($quantity >= 2000) {
-            $maxDelayPercent = 0.20;
-            $maxDelayMinutes = ceil($expectedTotalDuration * $maxDelayPercent);
-        }
-        $order->max_delay = $maxDelayMinutes;
+        // \Log::info("[MAX_DELAY] order={$order->order_no} qty={$quantity} "
+        //     . "trips={$numTrips} planning_interval={$planningInterval} "
+        //     . "expected_duration={$expected}min "
+        //     . "max_delay={$maxDelayMins}min ({$maxDelayPercent}\u00D7)");
+    }
+
+    public function exportSchedule(Request $request)
+    {
+        $request->validate([
+            'company_id'    => 'required|integer',
+            'schedule_date' => 'required|date',
+        ]);
+
+        $filename = 'Schedule_' . $request->schedule_date . '_Company_' . $request->company_id . '.xlsx';
+
+        return Excel::download(
+            new ScheduleExport([
+                'company_id'    => $request->company_id,
+                'schedule_date' => $request->schedule_date,
+                'user_id'       => auth()->id(),
+            ]),
+            $filename
+        );
     }
 }

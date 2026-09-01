@@ -42,12 +42,12 @@
 
                     <div class="col-md-4">
                         <div class="d-sm-flex d-block align-items-center justify-content-end">
-                            <button type="button" onclick = "redirectToLiveOrder();" class="btn save-btn mr-3">Today's
+                            <button type="button" onclick="redirectToLiveOrder();" class="btn save-btn mr-3">Today's
                                 Schedule</button>
                             <div class="dropdown show calender-box mt-3 mt-sm-0">
-                                <button class="btn calender-btn new-calenderbtn dropdown-toggle" href="#"
-                                    role="button" id="dropdownMenuLink" data-toggle="dropdown" aria-haspopup="true"
-                                    aria-expanded="false" disabled>
+                                <button class="btn calender-btn new-calenderbtn dropdown-toggle" href="#" role="button"
+                                    id="dropdownMenuLink" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false"
+                                    disabled>
 
                                     <div id="schedule_date_label"></div>
                                 </button>
@@ -76,39 +76,40 @@
                                 <div class="form-group position-relative">
                                     <input type="email" class="form-control search-byinpt padding-right"
                                         placeholder="Search By...">
-                                    <img src="{{ asset('assets/img/fill-search.svg') }}" class="fill-serchimg"
-                                        alt="">
+                                    <img src="{{ asset('assets/img/fill-search.svg') }}" class="fill-serchimg" alt="">
                                 </div>
                             </div>
 
                             <div class="col-md-8 text-sm-right">
 
-                                <button onclick = "redirectOrders();" type="button"
+                                <button onclick="redirectOrders();" type="button"
                                     class="btn btn-primary mr-2">Orders</button>
-                                <button onclick = "redirectResources();" type="button"
+                                <button onclick="redirectResources();" type="button"
                                     class="btn btn-success mr-2">Resources</button>
                                 <form id="publishOrders" action="{{ route('orders.schedule.publish') }}" method="POST"
-                                    style = "display:inline;">
+                                    style="display:inline;">
                                     @csrf
-                                    <input type = "hidden" id = "input_gp_cmp_id" name = "group_company_id">
-                                    <input type = "hidden" id = "input_sch_date" name = "schedule_date">
+                                    <input type="hidden" id="input_gp_cmp_id" name="group_company_id">
+                                    <input type="hidden" id="input_sch_date" name="schedule_date">
                                     <button type="button" onclick="confirmPublish()"
                                         class="btn btn-publish mr-2">Publish</button>
 
 
                                 </form>
 
-                                <button type="button" class="btn export-btn mr-2">Export</button>
+                                <button type="button" onclick="exportSchedule()" class="btn export-btn mr-2">
+                                    <span id="export-btn-text">Export</span>
+                                </button>
                                 {{-- <select class="filter-select mr-2 mt-sm-0 mt-3">
-											<option>Filters</option>
+                                    <option>Filters</option>
 
-										</select> --}}
+                                </select> --}}
 
                                 <label>Interval Deviation - </label>
                                 <div class="form-group position-relative" style="display: inline;">
                                     <input type="number" class="form-control search-byinpt padding-right"
-                                        style="display: inline; max-width: 15%;" id = "interval_deviation_input"
-                                        type ="number" min = "0" max = "500" value="100">
+                                        style="display: inline; max-width: 15%;" id="interval_deviation_input" type="number"
+                                        min="0" max="500" value="100">
                                     <img src="{{ asset('assets/img/percentage_icon.png') }}" class="fill-percentageimg-2"
                                         alt="">
                                 </div>
@@ -148,8 +149,8 @@
                                         echo ', LPI : ' .
                                             round(
                                                 $avgWeightedCsScore * 0.4 +
-                                                    $punctualityScore * 0.2 +
-                                                    $result['productivity'] * 0.4,
+                                                $punctualityScore * 0.2 +
+                                                $result['productivity'] * 0.4,
                                                 2,
                                             );
                                     @endphp
@@ -201,118 +202,118 @@
                                             @foreach ($result['resData'] as $res)
                                                 <tr>
                                                     <td
-                                                        class = "{{ $res['schedule'] ? ($res['quantity'] <= $res['delivered_quantity'] ? '' : 'yellow-bgtd') : 'orange-bgtd' }}">
+                                                        class="{{ $res['schedule'] ? ($res['quantity'] <= $res['delivered_quantity'] ? '' : 'yellow-bgtd') : 'orange-bgtd' }}">
                                                         <div class="d-flex justify-content-between align-items-center">
                                                             <div>
-                                                                Order {{ $res['order_no'] }}
+                                                                Order {{ $res['order_no'] }} 
                                                                 ({{ $res['quantity'] == $res['delivered_quantity'] ? $res['delivered_quantity'] : min($res['delivered_quantity'], $res['quantity']) . '/' . $res['quantity'] }}
                                                                 CUM)
                                                             </div>
                                                             <div>
                                                                 @if ($res['is_temp_required'])
-                                                                    <img src="{{ asset('assets/img/ice.svg') }}"
-                                                                        alt="">
+                                                                    <img src="{{ asset('assets/img/ice.svg') }}" alt="">
                                                                 @endif
 
                                                                 @if ($res['pump_qty'])
-                                                                    <img src="{{ asset('assets/img/pump.svg') }}"
-                                                                        alt="">
+                                                                    <img src="{{ asset('assets/img/pump.svg') }}" alt="">
                                                                 @endif
                                                             </div>
                                                             <div>
 
                                                                 <img src="{{ asset('assets/img/gray-more.svg') }}"
-                                                                    id = "more-icon-{{ $res['order_no'] }}"
-                                                                    alt="" style="cursor: pointer;"
+                                                                    id="more-icon-{{ $res['order_no'] }}" alt=""
+                                                                    style="cursor: pointer;"
                                                                     onclick="toggleDropdown({{ $res['order_no'] }})">
                                                             </div>
                                                         </div>
-                                                        <span class="plant-texttable">{{ $res['location'] }}</span>
 
-                                                       @php
-    $fullyDelivered  = (int)($res['delivered_quantity'] ?? 0) >= (int)($res['quantity'] ?? 0);
-    $hasFailure      = !empty($res['failure_reason']);
-    $failureText     = $res['failure_reason'] ?? '';
+                                                        <span class="plant-texttable">LPI {{ $res['lpi_score'] }} <br>{{ $res['location'] }}</span>
 
-    // Split pipe-separated reasons into array
-    $allReasons      = array_filter(array_map('trim', explode('|', $failureText)));
+                                                        @php
+                                                            $fullyDelivered = (int) ($res['delivered_quantity'] ?? 0) >= (int) ($res['quantity'] ?? 0);
+                                                            $hasFailure = !empty($res['failure_reason']);
+                                                            $failureText = $res['failure_reason'] ?? '';
 
-    // Separate hard failures from soft warnings
-    $hardReasons     = [];
-    $softWarnings    = [];
+                                                            // Split pipe-separated reasons into array
+                                                            $allReasons = array_filter(array_map('trim', explode('|', $failureText)));
 
-    foreach ($allReasons as $reason) {
-        $isWarningOnly = str_contains($reason, 'gap')
-            || str_contains($reason, 'flexible')
-            || str_contains($reason, 'interval')
-            || str_contains($reason, 'overlap');
+                                                            // Separate hard failures from soft warnings
+                                                            $hardReasons = [];
+                                                            $softWarnings = [];
 
-        if ($isWarningOnly) {
-            $softWarnings[] = $reason;
-        } else {
-            $hardReasons[] = $reason;
-        }
-    }
+                                                            foreach ($allReasons as $reason) {
+                                                                $isWarningOnly = str_contains($reason, 'gap')
+                                                                    || str_contains($reason, 'flexible')
+                                                                    || str_contains($reason, 'interval')
+                                                                    || str_contains($reason, 'overlap');
 
-    $isPartial      = !$fullyDelivered && (int)($res['delivered_quantity'] ?? 0) > 0;
-    $isNotScheduled = !$fullyDelivered && (int)($res['delivered_quantity'] ?? 0) === 0;
-@endphp
+                                                                if ($isWarningOnly) {
+                                                                    $softWarnings[] = $reason;
+                                                                } else {
+                                                                    $hardReasons[] = $reason;
+                                                                }
+                                                            }
 
-{{-- ── Hard failures (not/partially scheduled) ── --}}
-@if (!$fullyDelivered && $hasFailure)
-    <div class="schedule-failure-box mt-2">
+                                                            $isPartial = !$fullyDelivered && (int) ($res['delivered_quantity'] ?? 0) > 0;
+                                                            $isNotScheduled = !$fullyDelivered && (int) ($res['delivered_quantity'] ?? 0) === 0;
+                                                        @endphp
 
-        @if ($isNotScheduled)
-            <span class="badge badge-danger mb-1">
-                <i class="fa fa-times-circle mr-1"></i> Not Scheduled
-            </span>
-        @elseif ($isPartial)
-            <span class="badge badge-warning mb-1">
-                <i class="fa fa-exclamation-triangle mr-1"></i>
-                Partially Scheduled
-                ({{ $res['delivered_quantity'] }} / {{ $res['quantity'] }} m³)
-            </span>
-        @endif
+                                                        {{-- ── Hard failures (not/partially scheduled) ── --}}
+                                                        @if (!$fullyDelivered && $hasFailure)
+                                                            <div class="schedule-failure-box mt-2">
 
-        @foreach ($hardReasons as $reason)
-            <div class="small mt-1 d-flex align-items-start">
-                <i class="fa fa-times-circle text-danger mr-1 mt-1"></i>
-                <span class="text-danger">{{ $reason }}</span>
-            </div>
-        @endforeach
+                                                                @if ($isNotScheduled)
+                                                                    <span class="badge badge-danger mb-1">
+                                                                        <i class="fa fa-times-circle mr-1"></i> Not Scheduled
+                                                                    </span>
+                                                                @elseif ($isPartial)
+                                                                    <span class="badge badge-warning mb-1">
+                                                                        <i class="fa fa-exclamation-triangle mr-1"></i>
+                                                                        Partially Scheduled
+                                                                        ({{ $res['delivered_quantity'] }} / {{ $res['quantity'] }} m³)
+                                                                    </span>
+                                                                @endif
 
-        @foreach ($softWarnings as $reason)
-            <div class="small mt-1 d-flex align-items-start">
-                @if (str_contains($reason, 'gap') || str_contains($reason, 'flexible'))
-                    <i class="fa fa-info-circle text-warning mr-1 mt-1"></i>
-                    <span class="text-warning">{{ $reason }}</span>
-                @else
-                    <i class="fa fa-clock-o text-info mr-1 mt-1"></i>
-                    <span class="text-info">{{ $reason }}</span>
-                @endif
-            </div>
-        @endforeach
+                                                                @foreach ($hardReasons as $reason)
+                                                                    <div class="small mt-1 d-flex align-items-start">
+                                                                        <i class="fa fa-times-circle text-danger mr-1 mt-1"></i>
+                                                                        <span class="text-danger">{{ $reason }}</span>
+                                                                    </div>
+                                                                @endforeach
 
-    </div>
+                                                                @foreach ($softWarnings as $reason)
+                                                                    <div class="small mt-1 d-flex align-items-start">
+                                                                        @if (str_contains($reason, 'gap') || str_contains($reason, 'flexible'))
+                                                                            <i class="fa fa-info-circle text-warning mr-1 mt-1"></i>
+                                                                            <span class="text-warning">{{ $reason }}</span>
+                                                                        @else
+                                                                            <i class="fa fa-clock-o text-info mr-1 mt-1"></i>
+                                                                            <span class="text-info">{{ $reason }}</span>
+                                                                        @endif
+                                                                    </div>
+                                                                @endforeach
 
-{{-- ── Fully scheduled but has soft warnings (gap/interval/overlap) ── --}}
-@elseif ($fullyDelivered && !empty($softWarnings))
-    <div class="mt-2">
-       
-        @foreach ($softWarnings as $warning)
-            <div class="small mt-1 d-flex align-items-start">
-                @if (str_contains($warning, 'gap') || str_contains($warning, 'flexible'))
-                    <i class="fa fa-info-circle text-warning mr-1 mt-1"></i>
-                    <span class="text-warning">{{ $warning }}</span>
-                @else
-                    <i class="fa fa-clock-o text-info mr-1 mt-1"></i>
-                    <span class="text-info">{{ $warning }}</span>
-                @endif
-            </div>
-        @endforeach
-    </div>
+                                                            </div>
 
-@endif
+                                                            {{-- ── Fully scheduled but has soft warnings (gap/interval/overlap) ──
+                                                            --}}
+                                                        @elseif ($fullyDelivered && !empty($softWarnings))
+                                                            <div class="mt-2">
+
+                                                                @foreach ($softWarnings as $warning)
+                                                                    <div class="small mt-1 d-flex align-items-start">
+                                                                        @if (str_contains($warning, 'gap') || str_contains($warning, 'flexible'))
+                                                                            <i class="fa fa-info-circle text-warning mr-1 mt-1"></i>
+                                                                            <span class="text-warning">{{ $warning }}</span>
+                                                                        @else
+                                                                            <i class="fa fa-clock-o text-info mr-1 mt-1"></i>
+                                                                            <span class="text-info">{{ $warning }}</span>
+                                                                        @endif
+                                                                    </div>
+                                                                @endforeach
+                                                            </div>
+
+                                                        @endif
 
                                                         <span class="text small">
                                                             &nbsp; &nbsp; Trips : {{ count($res['schedule']) }}
@@ -335,49 +336,47 @@
                                                             }
 
                                                         @endphp
-                                                        <td
-                                                            colspan="{{ isset($resData['colspan']) ? $resData['colspan'] : 1 }}">
+                                                        <td colspan="{{ isset($resData['colspan']) ? $resData['colspan'] : 1 }}">
 
                                                             @if (isset($resData['id']))
                                                                 <div class="main-progressbox">
                                                                     <div class="progress multi-progress ml{{ $resData['start_minutes'] }}"
-                                                                        id = "progress-bar-{{ $res['id'] }}"
-                                                                        onclick = "setSelectedOrder({{ $res['id'] }});"
-                                                                        data-target="#reschedule-order"
-                                                                        data-orderId="{{ $res['id'] }}"
-                                                                        data-deliveryDate = "{{ $res['delivery_date'] }}"
-                                                                        data-interval = "{{ $res['interval'] }}"
-                                                                        data-deviation = "{{ $res['interval_deviation'] }}"
+                                                                        id="progress-bar-{{ $res['id'] }}"
+                                                                        onclick="setSelectedOrder({{ $res['id'] }});"
+                                                                        data-target="#reschedule-order" data-orderId="{{ $res['id'] }}"
+                                                                        data-deliveryDate="{{ $res['delivery_date'] }}"
+                                                                        data-interval="{{ $res['interval'] }}"
+                                                                        data-deviation="{{ $res['interval_deviation'] }}"
                                                                         data-toggle="modal">
 
                                                                         @php
                                                                             $deviation =
                                                                                 $resData['late_deviation'] > 0
-                                                                                    ? $resData['late_deviation'] .
-                                                                                        ' Mins Late'
-                                                                                    : ($resData['early_deviation']
-                                                                                        ? $resData['early_deviation'] .
-                                                                                            ' Mins Early'
-                                                                                        : null);
+                                                                                ? $resData['late_deviation'] .
+                                                                                ' Mins Late'
+                                                                                : ($resData['early_deviation']
+                                                                                    ? $resData['early_deviation'] .
+                                                                                    ' Mins Early'
+                                                                                    : null);
                                                                             $duration = Carbon\Carbon::parse(
                                                                                 $res['start_time'],
                                                                             )->eq(
-                                                                                Carbon\Carbon::parse($res['end_time']),
-                                                                            )
+                                                                                    Carbon\Carbon::parse($res['end_time']),
+                                                                                )
                                                                                 ? 'Schedule - ' .
-                                                                                    Carbon\Carbon::parse(
-                                                                                        $res['end_time'],
-                                                                                    )->format('h:i A') .
-                                                                                    ' '
+                                                                                Carbon\Carbon::parse(
+                                                                                    $res['end_time'],
+                                                                                )->format('h:i A') .
+                                                                                ' '
                                                                                 : ' Schedule - ' .
-                                                                                    Carbon\Carbon::parse(
-                                                                                        $res['start_time'],
-                                                                                    )->format('h:i A') .
-                                                                                    ' to ' .
-                                                                                    Carbon\Carbon::parse(
-                                                                                        $res['end_time'],
-                                                                                    )->format('h:i A') .
-                                                                                    ' ';
+                                                                                Carbon\Carbon::parse(
+                                                                                    $res['start_time'],
+                                                                                )->format('h:i A') .
+                                                                                ' to ' .
+                                                                                Carbon\Carbon::parse(
+                                                                                    $res['end_time'],
+                                                                                )->format('h:i A') .
+                                                                                ' ';
                                                                             $bar_title =
                                                                                 'Delivery - ' .
                                                                                 Carbon\Carbon::parse(
@@ -394,32 +393,28 @@
 
                                                                         @if ($resData['early_deviation_pixel'] > 0)
                                                                             <div class="progress-bar multi-firstdarkblue"
-                                                                                data-toggle="tooltip"
-                                                                                data-placement="bottom"
-                                                                                title="{{ $main_title }}"
-                                                                                role="progressbar"
+                                                                                data-toggle="tooltip" data-placement="bottom"
+                                                                                title="{{ $main_title }}" role="progressbar"
                                                                                 style="padding : 0%; width: {{ $resData['early_deviation_pixel'] ? $resData['early_deviation_pixel'] . 'px' : '0%' }}"
-                                                                                aria-valuenow="15" aria-valuemin="0"
-                                                                                aria-valuemax="100"></div>
+                                                                                aria-valuenow="15" aria-valuemin="0" aria-valuemax="100">
+                                                                            </div>
                                                                         @endif
 
                                                                         @if ($resData['late_deviation_pixel'] > 0)
-                                                                            <div class="progress-bar multi-firstred"
-                                                                                data-toggle="tooltip"
-                                                                                data-placement="bottom"title="{{ $main_title }}"
+                                                                            <div class="progress-bar multi-firstred" data-toggle="tooltip"
+                                                                                data-placement="bottom" title="{{ $main_title }}"
                                                                                 role="progressbar"
                                                                                 style="padding : 0%; width: {{ $resData['late_deviation_pixel'] ? $resData['late_deviation_pixel'] . 'px' : '0%' }}"
-                                                                                aria-valuenow="15" aria-valuemin="0"
-                                                                                aria-valuemax="100"></div>
+                                                                                aria-valuenow="15" aria-valuemin="0" aria-valuemax="100">
+                                                                            </div>
                                                                         @endif
 
-                                                                        <div class="progress-bar multi-firstblue"
-                                                                            data-toggle="tooltip" data-placement="bottom"
-                                                                            title="{{ $main_title }}"
+                                                                        <div class="progress-bar multi-firstblue" data-toggle="tooltip"
+                                                                            data-placement="bottom" title="{{ $main_title }}"
                                                                             role="progressbar"
                                                                             style="padding : 0%; width  : {{ $resData['total_pixels'] ? $resData['total_pixels'] . 'px' : '0%' }}"
-                                                                            aria-valuenow="30" aria-valuemin="0"
-                                                                            aria-valuemax="100"></div>
+                                                                            aria-valuenow="30" aria-valuemin="0" aria-valuemax="100">
+                                                                        </div>
                                                                     </div>
                                                                 </div>
 
@@ -449,8 +444,8 @@
                                                     @endforeach
                                                 </tr>
                                                 @if (isset($res['schedule']) && count($res['schedule']) > 0)
-                                                    <tr class = "secound-table schedule-graph-hidden schedule-graph-{{ $res['order_no'] }}"
-                                                        id = "schedule-{{ $res['order_no'] }}">
+                                                    <tr class="secound-table schedule-graph-hidden schedule-graph-{{ $res['order_no'] }}"
+                                                        id="schedule-{{ $res['order_no'] }}">
                                                         <td colspan="4">
                                                             {{ Carbon\Carbon::parse($res['start_time'])->format('h:i A') }}
                                                             -
@@ -504,17 +499,15 @@
 
                                                     @foreach ($res['pump_schedule'] as $psch)
                                                         <tr
-                                                            class = "schedule-graph-hidden schedule-graph-{{ isset($res['order_no']) ? $res['order_no'] : '' }}">
+                                                            class="schedule-graph-hidden schedule-graph-{{ isset($res['order_no']) ? $res['order_no'] : '' }}">
                                                             <td>
-                                                                <div
-                                                                    class="d-flex align-items-center justify-content-between">
+                                                                <div class="d-flex align-items-center justify-content-between">
                                                                     <div>
                                                                         Pump {{ $psch['pump'] }}
                                                                     </div>
 
                                                                     <div>
-                                                                        <img src="{{ asset('assets/img/light-info.svg') }}"
-                                                                            alt="">
+                                                                        <img src="{{ asset('assets/img/light-info.svg') }}" alt="">
                                                                     </div>
                                                                 </div>
                                                             </td>
@@ -537,69 +530,54 @@
                                                                     @if (isset($pschResData['id']))
                                                                         <div class="main-progressbox">
                                                                             <div class="progress constructions-chart"
-                                                                                style = "margin-left:{{ $pschResData['start_minutes'] . 'px' }};">
+                                                                                style="margin-left:{{ $pschResData['start_minutes'] . 'px' }};">
                                                                                 @if ($psch['qc_time'] != 0)
-                                                                                    <div class="progress-bar pink"
-                                                                                        data-toggle="tooltip"
+                                                                                    <div class="progress-bar pink" data-toggle="tooltip"
                                                                                         data-placement="bottom"
                                                                                         title="{{ Carbon\Carbon::parse($psch['qc_start'])->format('h:i A') . ' to ' . Carbon\Carbon::parse($psch['qc_end'])->format('h:i A') . ' (' . $psch['qc_time'] . ' mins)' }}"
                                                                                         role="progressbar"
                                                                                         style="padding : 0%; width :  {{ $pschResData['qc_pixels'] ? $pschResData['qc_pixels'] . 'px' : '0%' }}"
-                                                                                        aria-valuemin="0"
-                                                                                        aria-valuemax="100"></div>
+                                                                                        aria-valuemin="0" aria-valuemax="100"></div>
                                                                                 @endif
-                                                                                <div class="progress-bar purple"
-                                                                                    data-toggle="tooltip"
+                                                                                <div class="progress-bar purple" data-toggle="tooltip"
                                                                                     data-placement="bottom"
                                                                                     title="{{ Carbon\Carbon::parse($psch['travel_start'])->format('h:i A') . ' to ' . Carbon\Carbon::parse($psch['travel_end'])->format('h:i A') . ' (' . $psch['travel_time'] . ' mins)' }}"
                                                                                     role="progressbar"
                                                                                     style="padding : 0%; width :  {{ $pschResData['travel_pixels'] ? $pschResData['travel_pixels'] . 'px' : '0%' }}"
                                                                                     aria-valuemin="0" aria-valuemax="100">
                                                                                 </div>
-                                                                                <div class="progress-bar dark-green"
-                                                                                    role="progressbar"
-                                                                                    data-toggle="tooltip"
-                                                                                    data-placement="bottom"
+                                                                                <div class="progress-bar dark-green" role="progressbar"
+                                                                                    data-toggle="tooltip" data-placement="bottom"
                                                                                     title="{{ Carbon\Carbon::parse($psch['insp_start'])->format('h:i A') . ' to ' . Carbon\Carbon::parse($psch['insp_end'])->format('h:i A') . ' (' . $psch['insp_time'] . ' mins)' }}"
                                                                                     style="padding : 0%; width :  {{ $pschResData['insp_pixels'] ? $pschResData['insp_pixels'] . 'px' : '0%' }}"
                                                                                     aria-valuemin="0" aria-valuemax="100">
                                                                                 </div>
-                                                                                <div class="progress-bar yellow"
-                                                                                    role="progressbar"
-                                                                                    data-toggle="tooltip"
-                                                                                    data-placement="bottom"
+                                                                                <div class="progress-bar yellow" role="progressbar"
+                                                                                    data-toggle="tooltip" data-placement="bottom"
                                                                                     title="{{ Carbon\Carbon::parse($psch['install_start'])->format('h:i A') . ' to ' . Carbon\Carbon::parse($psch['install_end'])->format('h:i A') . ' (' . $psch['install_time'] . ' mins)' }}"
                                                                                     style="padding : 0%; width :  {{ $pschResData['install_pixels'] ? $pschResData['install_pixels'] . 'px' : '0%' }}"
                                                                                     aria-valuemin="0" aria-valuemax="100">
                                                                                 </div>
-                                                                                <div class="progress-bar bg-secondary"
-                                                                                    role="progressbar"
-                                                                                    data-toggle="tooltip"
-                                                                                    data-placement="bottom"
+                                                                                <div class="progress-bar bg-secondary" role="progressbar"
+                                                                                    data-toggle="tooltip" data-placement="bottom"
                                                                                     title="{{ Carbon\Carbon::parse($psch['waiting_start'])->format('h:i A') . ' to ' . Carbon\Carbon::parse($psch['waiting_end'])->format('h:i A') . ' (' . $psch['waiting_time'] . ' mins)' }}"
                                                                                     style="padding : 0%; width :  {{ $pschResData['waiting_pixels'] ? $pschResData['waiting_pixels'] . 'px' : '0%' }}"
                                                                                     aria-valuemin="0" aria-valuemax="100">
                                                                                 </div>
-                                                                                <div class="progress-bar dark-blue"
-                                                                                    role="progressbar"
-                                                                                    data-toggle="tooltip"
-                                                                                    data-placement="bottom"
+                                                                                <div class="progress-bar dark-blue" role="progressbar"
+                                                                                    data-toggle="tooltip" data-placement="bottom"
                                                                                     title="{{ Carbon\Carbon::parse($psch['pouring_start'])->format('h:i A') . ' to ' . Carbon\Carbon::parse($psch['pouring_end'])->format('h:i A') . ' (' . $psch['pouring_time'] . ' mins)' }}"
                                                                                     style="padding : 0%; width :  {{ $pschResData['pouring_pixels'] ? $pschResData['pouring_pixels'] . 'px' : '0%' }}"
                                                                                     aria-valuemin="0" aria-valuemax="100">
                                                                                 </div>
-                                                                                <div class="progress-bar nevy-blue"
-                                                                                    role="progressbar"
-                                                                                    data-toggle="tooltip"
-                                                                                    data-placement="bottom"
+                                                                                <div class="progress-bar nevy-blue" role="progressbar"
+                                                                                    data-toggle="tooltip" data-placement="bottom"
                                                                                     title="{{ Carbon\Carbon::parse($psch['cleaning_start'])->format('h:i A') . ' to ' . Carbon\Carbon::parse($psch['cleaning_end'])->format('h:i A') . ' (' . $psch['cleaning_time'] . ' mins)' }}"
                                                                                     style="padding : 0%; width :  {{ $pschResData['cleaning_pixels'] ? $pschResData['cleaning_pixels'] . 'px' : '0%' }}"
                                                                                     aria-valuemin="0" aria-valuemax="100">
                                                                                 </div>
-                                                                                <div class="progress-bar light-green"
-                                                                                    role="progressbar"
-                                                                                    data-toggle="tooltip"
-                                                                                    data-placement="bottom"
+                                                                                <div class="progress-bar light-green" role="progressbar"
+                                                                                    data-toggle="tooltip" data-placement="bottom"
                                                                                     title="{{ Carbon\Carbon::parse($psch['return_start'])->format('h:i A') . ' to ' . Carbon\Carbon::parse($psch['return_end'])->format('h:i A') . ' (' . $psch['return_time'] . ' mins)' }}"
                                                                                     style="padding : 0%; width :  {{ $pschResData['return_pixels'] ? $pschResData['return_pixels'] . 'px' : '0%' }}"
                                                                                     aria-valuemin="0" aria-valuemax="100">
@@ -636,11 +614,10 @@
                                                     @endforeach
 
                                                     @foreach ($res['schedule'] as $sch)
-                                                        <tr class = "schedule-graph-hidden schedule-graph-{{ $res['order_no'] }}"
-                                                            id = "schedule-{{ $res['order_no'] }}">
+                                                        <tr class="schedule-graph-hidden schedule-graph-{{ $res['order_no'] }}"
+                                                            id="schedule-{{ $res['order_no'] }}">
                                                             <td>
-                                                                <div
-                                                                    class="d-flex align-items-center justify-content-between">
+                                                                <div class="d-flex align-items-center justify-content-between">
                                                                     <div>
                                                                         Truck {{ $sch['transit_mixer'] . ' ' }}
                                                                         ({{ $sch['truck_capacity'] . ' CUM' }})
@@ -651,8 +628,7 @@
                                                                     </div>
 
                                                                     <div>
-                                                                        <img src="{{ asset('assets/img/light-info.svg') }}"
-                                                                            alt="">
+                                                                        <img src="{{ asset('assets/img/light-info.svg') }}" alt="">
                                                                     </div>
                                                                 </div>
                                                             </td>
@@ -674,65 +650,56 @@
                                                                     @if (isset($schResData['id']))
                                                                         <div class="main-progressbox">
                                                                             <div class="progress constructions-chart ml"
-                                                                                style = "margin-left:{{ $schResData['start_minutes'] . 'px' }};">
-                                                                                <div class="progress-bar skyblue"
-                                                                                    data-toggle="tooltip"
+                                                                                style="margin-left:{{ $schResData['start_minutes'] . 'px' }};">
+                                                                                <div class="progress-bar skyblue" data-toggle="tooltip"
                                                                                     data-placement="bottom"
                                                                                     title="{{ Carbon\Carbon::parse($sch['loading_start'])->format('h:i A') . ' to ' . Carbon\Carbon::parse($sch['loading_end'])->format('h:i A') . ' (' . $sch['loading_time'] . ' mins)' }}"
                                                                                     role="progressbar"
                                                                                     style="padding : 0%; width :  {{ $schResData['loading_pixels'] ? $schResData['loading_pixels'] . 'px' : '0%' }}"
                                                                                     aria-valuemin="0" aria-valuemax="100">
                                                                                 </div>
-                                                                                <div class="progress-bar pink"
-                                                                                    data-toggle="tooltip"
+                                                                                <div class="progress-bar pink" data-toggle="tooltip"
                                                                                     data-placement="bottom"
                                                                                     title="{{ Carbon\Carbon::parse($sch['qc_start'])->format('h:i A') . ' to ' . Carbon\Carbon::parse($sch['qc_end'])->format('h:i A') . ' (' . $sch['qc_time'] . ' mins)' }}"
                                                                                     role="progressbar"
                                                                                     style="padding : 0%; width :  {{ $schResData['qc_pixels'] ? $schResData['qc_pixels'] . 'px' : '0%' }}"
                                                                                     aria-valuemin="0" aria-valuemax="100">
                                                                                 </div>
-                                                                                <div class="progress-bar purple"
-                                                                                    data-toggle="tooltip"
+                                                                                <div class="progress-bar purple" data-toggle="tooltip"
                                                                                     data-placement="bottom"
                                                                                     title="{{ Carbon\Carbon::parse($sch['travel_start'])->format('h:i A') . ' to ' . Carbon\Carbon::parse($sch['travel_end'])->format('h:i A') . ' (' . $sch['travel_time'] . ' mins)' }}"
                                                                                     role="progressbar"
                                                                                     style="padding : 0%; width :  {{ $schResData['travel_pixels'] ? $schResData['travel_pixels'] . 'px' : '0%' }}"
                                                                                     aria-valuemin="0" aria-valuemax="100">
                                                                                 </div>
-                                                                                <div class="progress-bar dark-green"
-                                                                                    data-toggle="tooltip"
+                                                                                <div class="progress-bar dark-green" data-toggle="tooltip"
                                                                                     data-placement="bottom"
                                                                                     title="{{ Carbon\Carbon::parse($sch['insp_start'])->format('h:i A') . ' to ' . Carbon\Carbon::parse($sch['insp_end'])->format('h:i A') . ' (' . $sch['insp_time'] . ' mins)' }}"
                                                                                     role="progressbar"
                                                                                     style="padding : 0%; width :  {{ $schResData['insp_pixels'] ? $schResData['insp_pixels'] . 'px' : '0%' }}"
                                                                                     aria-valuemin="0" aria-valuemax="100">
                                                                                 </div>
-                                                                                <div class="progress-bar bg-secondary"
-                                                                                    role="progressbar"
-                                                                                    data-toggle="tooltip"
-                                                                                    data-placement="bottom"
+                                                                                <div class="progress-bar bg-secondary" role="progressbar"
+                                                                                    data-toggle="tooltip" data-placement="bottom"
                                                                                     title="{{ Carbon\Carbon::parse($sch['waiting_start'])->format('h:i A') . ' to ' . Carbon\Carbon::parse($sch['waiting_end'])->format('h:i A') . ' (' . $sch['waiting_time'] . ' mins)' }}"
                                                                                     style="padding : 0%; width :  {{ $schResData['waiting_pixels'] ? $schResData['waiting_pixels'] . 'px' : '0%' }}"
                                                                                     aria-valuemin="0" aria-valuemax="100">
                                                                                 </div>
-                                                                                <div class="progress-bar dark-blue"
-                                                                                    data-toggle="tooltip"
+                                                                                <div class="progress-bar dark-blue" data-toggle="tooltip"
                                                                                     data-placement="bottom"
                                                                                     title="{{ Carbon\Carbon::parse($sch['pouring_start'])->format('h:i A') . ' to ' . Carbon\Carbon::parse($sch['pouring_end'])->format('h:i A') . ' (' . $sch['pouring_time'] . ' mins)' }}"
                                                                                     role="progressbar"
                                                                                     style="padding : 0%; width :  {{ $schResData['pouring_pixels'] ? $schResData['pouring_pixels'] . 'px' : '0%' }}"
                                                                                     aria-valuemin="0" aria-valuemax="100">
                                                                                 </div>
-                                                                                <div class="progress-bar nevy-blue"
-                                                                                    data-toggle="tooltip"
+                                                                                <div class="progress-bar nevy-blue" data-toggle="tooltip"
                                                                                     data-placement="bottom"
                                                                                     title="{{ Carbon\Carbon::parse($sch['cleaning_start'])->format('h:i A') . ' to ' . Carbon\Carbon::parse($sch['cleaning_end'])->format('h:i A') . ' (' . $sch['cleaning_time'] . ' mins)' }}"
                                                                                     role="progressbar"
                                                                                     style="padding : 0%; width :  {{ $schResData['cleaning_pixels'] ? $schResData['cleaning_pixels'] . 'px' : '0%' }}"
                                                                                     aria-valuemin="0" aria-valuemax="100">
                                                                                 </div>
-                                                                                <div class="progress-bar light-green"
-                                                                                    data-toggle="tooltip"
+                                                                                <div class="progress-bar light-green" data-toggle="tooltip"
                                                                                     data-placement="bottom"
                                                                                     title="{{ Carbon\Carbon::parse($sch['return_start'])->format('h:i A') . ' to ' . Carbon\Carbon::parse($sch['return_end'])->format('h:i A') . ' (' . $sch['return_time'] . ' mins)' }}"
                                                                                     role="progressbar"
@@ -810,8 +777,7 @@
                                 <div class="form-group position-relative">
                                     <input type="email" class="form-control search-byinpt padding-right"
                                         placeholder="Search By...">
-                                    <img src="{{ asset('assets/img/fill-search.svg') }}" class="fill-serchimg"
-                                        alt="">
+                                    <img src="{{ asset('assets/img/fill-search.svg') }}" class="fill-serchimg" alt="">
                                 </div>
                             </div>
                             <div class="col-md-8 text-sm-right">
@@ -862,7 +828,7 @@
 
 
                                             @foreach ($batching_plant['resData'] as $locationKey => $locationValue)
-                                                <tr class = "secound-table">
+                                                <tr class="secound-table">
                                                     <td colspan="4">
                                                         {{ $locationKey }}
                                                     </td>
@@ -893,30 +859,30 @@
                                                 </tr>
                                                 @foreach ($locationValue as $res)
                                                     <tr>
-                                                        <td class = "{{ $res['batching_plant'] ? '' : 'orange-bgtd' }}">
+                                                        <td class="{{ $res['batching_plant'] ? '' : 'orange-bgtd' }}">
                                                             <div class="d-flex justify-content-between align-items-center">
                                                                 <div>
                                                                     {{ $res['batching_plant'] }}
-                                                                    <span class = "text-muted small">
+                                                                    <span class="text-muted small">
                                                                         ({{ $res['capacity'] }} m3/hr)
                                                                     </span>
                                                                     &nbsp;
-                                                                    <span class = "small">
+                                                                    <span class="small">
                                                                         {{ round($res['total_batching_qty'] / ($res['total_time'] / 60), 2) }}
                                                                         m3/h
                                                                     </span>
                                                                     <br />
-                                                                    <span class = "small">
+                                                                    <span class="small">
                                                                         {{ intval($res['loading_time'] / 60) }}:{{ intval($res['loading_time'] % 60) }}
                                                                         hrs
                                                                     </span>
                                                                     &nbsp;
-                                                                    <span class = "small">
+                                                                    <span class="small">
                                                                         <!-- {{ round($res['total_batching_qty'] / ($res['total_time'] / 60), 2) }} m3/h -->
                                                                         {{ round($res['total_batching_qty']) }} CUM
                                                                     </span>
                                                                     &nbsp;
-                                                                    <span class = "small">
+                                                                    <span class="small">
                                                                         {{ number_format(($res['total_batching_time'] / $res['total_time']) * 100, 0) }}
                                                                         %
                                                                     </span>
@@ -939,8 +905,7 @@
                                                             @endphp
 
 
-                                                            <td
-                                                                colspan="{{ isset($resData['colspan']) ? $resData['colspan'] : 1 }}">
+                                                            <td colspan="{{ isset($resData['colspan']) ? $resData['colspan'] : 1 }}">
 
 
                                                                 @if (isset($resData['id']))
@@ -950,13 +915,12 @@
 
                                                                             @foreach ($resData['multi_pixels'] as $multiPixel)
                                                                                 <div class="progress-bar {{ $multiPixel['type'] == 'A' ? 'skyblue' : 'gap' }}"
-                                                                                    data-toggle="tooltip"
-                                                                                    data-placement="bottom"
+                                                                                    data-toggle="tooltip" data-placement="bottom"
                                                                                     title="{{ isset($multiPixel['reason']) ? $multiPixel['reason'] : Carbon\Carbon::parse($multiPixel['loading_start'])->format('h:i:s A') . ' to ' . Carbon\Carbon::parse($multiPixel['loading_end'])->format('h:i:s A') . ' | ' . $multiPixel['mix'] . ' | ' . $multiPixel['batching_qty'] . ' CUM' . ' | Order - ' . $multiPixel['order_no'] }}"
                                                                                     role="progressbar"
                                                                                     style="margin-left: {{ $multiPixel['margin'] . 'px' }}; padding : 0%; min-width : {{ $multiPixel['loading_pixels'] ? $multiPixel['loading_pixels'] . 'px !important' : '0%' }}"
-                                                                                    aria-valuenow="30" aria-valuemin="0"
-                                                                                    aria-valuemax="100"></div>
+                                                                                    aria-valuenow="30" aria-valuemin="0" aria-valuemax="100">
+                                                                                </div>
                                                                             @endforeach
 
                                                                         </div>
@@ -1024,8 +988,7 @@
                                 <div class="form-group position-relative">
                                     <input type="email" class="form-control search-byinpt padding-right"
                                         placeholder="Search By...">
-                                    <img src="{{ asset('assets/img/fill-search.svg') }}" class="fill-serchimg"
-                                        alt="">
+                                    <img src="{{ asset('assets/img/fill-search.svg') }}" class="fill-serchimg" alt="">
                                 </div>
                             </div>
                             <div class="col-md-8 text-sm-right">
@@ -1050,8 +1013,8 @@
                                     Onsite Inspection </span>
                                 <span class="schedule-chartvalue mr-sm-2 mr-1"> <span class="dots-box bg-yellow"></span>
                                     Pump Installation </span>
-                                <span class="schedule-chartvalue mr-sm-2 mr-1"> <span
-                                        class="dots-box bg-secondary"></span> Waiting </span>
+                                <span class="schedule-chartvalue mr-sm-2 mr-1"> <span class="dots-box bg-secondary"></span>
+                                    Waiting </span>
                                 <span class="schedule-chartvalue mr-sm-2 mr-1"> <span class="dots-box  pouring"></span>
                                     Pouring </span>
                                 <br>
@@ -1090,7 +1053,7 @@
                                                 @endforeach
                                             </tr>
                                             @foreach ($transit_mixer['resData'] as $locationKey => $locationValue)
-                                                <tr class = "secound-table">
+                                                <tr class="secound-table">
                                                     <td colspan="4">
                                                         {{ $locationKey }}
                                                     </td>
@@ -1121,24 +1084,24 @@
                                                 </tr>
                                                 @foreach ($locationValue as $res)
                                                     <tr>
-                                                        <td class = "{{ $res['transit_mixer'] ? '' : 'orange-bgtd' }}">
+                                                        <td class="{{ $res['transit_mixer'] ? '' : 'orange-bgtd' }}">
                                                             <div class="d-flex justify-content-between align-items-center">
                                                                 <div>
                                                                     {{ $res['transit_mixer'] }}
-                                                                    <span class = "text-muted small">
+                                                                    <span class="text-muted small">
                                                                         ({{ $res['capacity'] }} CUM)
                                                                     </span>
                                                                     <br />
-                                                                    <span class = "small">
+                                                                    <span class="small">
                                                                         {{ intval($res['total_time'] / 60) }}:{{ intval($res['total_time'] % 60) }}
                                                                         hrs
                                                                     </span>
                                                                     &nbsp;
-                                                                    <span class = "small">
+                                                                    <span class="small">
                                                                         {{ $res['total_batching_qty'] }} CUM
                                                                     </span>
                                                                     &nbsp;
-                                                                    <span class = "small">
+                                                                    <span class="small">
                                                                         {{ number_format(($res['total_time'] / $res['total_actual_time']) * 100, 0) }}
                                                                         %
                                                                     </span>
@@ -1159,8 +1122,7 @@
                                                                 }
 
                                                             @endphp
-                                                            <td
-                                                                colspan="{{ isset($resData['colspan']) ? $resData['colspan'] : 1 }}">
+                                                            <td colspan="{{ isset($resData['colspan']) ? $resData['colspan'] : 1 }}">
 
                                                                 @if (isset($resData['id']))
                                                                     <div class="main-progressbox">
@@ -1168,74 +1130,65 @@
                                                                             class="progress constructions-chart ml{{ $resData['start_minutes'] }}">
 
                                                                             @foreach ($resData['multi_pixels'] as $multiPixel)
-                                                                                <div class="progress-bar skyblue"
-                                                                                    data-toggle="tooltip"
+                                                                                <div class="progress-bar skyblue" data-toggle="tooltip"
                                                                                     data-placement="bottom"
                                                                                     title="{{ 'Loading | ' . Carbon\Carbon::parse($multiPixel['loading_start'])->format('h:i A') . ' to ' . Carbon\Carbon::parse($multiPixel['loading_end'])->format('h:i A') . ' | Order - ' . $multiPixel['order_no'] }}"
                                                                                     role="progressbar"
                                                                                     style="margin-left: {{ $multiPixel['margin'] . 'px' }}; padding : 0%; min-width  : {{ $multiPixel['loading_pixels'] ? $multiPixel['loading_pixels'] . 'px !important' : '0%' }}"
-                                                                                    aria-valuenow="30" aria-valuemin="0"
-                                                                                    aria-valuemax="100"></div>
+                                                                                    aria-valuenow="30" aria-valuemin="0" aria-valuemax="100">
+                                                                                </div>
                                                                                 @if ($multiPixel['qc_start'] !== $multiPixel['qc_end'])
-                                                                                    <div class="progress-bar pink"
-                                                                                        data-toggle="tooltip"
+                                                                                    <div class="progress-bar pink" data-toggle="tooltip"
                                                                                         data-placement="bottom"
                                                                                         title="{{ 'Internal QC | ' . Carbon\Carbon::parse($multiPixel['qc_start'])->format('h:i A') . ' to ' . Carbon\Carbon::parse($multiPixel['qc_end'])->format('h:i A') . ' | Order - ' . $multiPixel['order_no'] }}"
                                                                                         role="progressbar"
                                                                                         style="padding : 0%; min-width  : {{ $multiPixel['qc_pixels'] ? $multiPixel['qc_pixels'] . 'px !important' : '0%' }}"
-                                                                                        aria-valuenow="30"
-                                                                                        aria-valuemin="0"
-                                                                                        aria-valuemax="100"></div>
+                                                                                        aria-valuenow="30" aria-valuemin="0" aria-valuemax="100">
+                                                                                    </div>
                                                                                 @endif
-                                                                                <div class="progress-bar purple"
-                                                                                    data-toggle="tooltip"
+                                                                                <div class="progress-bar purple" data-toggle="tooltip"
                                                                                     data-placement="bottom"
                                                                                     title="{{ 'Travel | ' . Carbon\Carbon::parse($multiPixel['travel_start'])->format('h:i A') . ' to ' . Carbon\Carbon::parse($multiPixel['travel_end'])->format('h:i A') . ' | Order - ' . $multiPixel['order_no'] }}"
                                                                                     role="progressbar"
                                                                                     style="padding : 0%; min-width  : {{ $multiPixel['travel_pixels'] ? $multiPixel['travel_pixels'] . 'px !important' : '0%' }}"
-                                                                                    aria-valuenow="30" aria-valuemin="0"
-                                                                                    aria-valuemax="100"></div>
-                                                                                <div class="progress-bar dark-green"
-                                                                                    data-toggle="tooltip"
+                                                                                    aria-valuenow="30" aria-valuemin="0" aria-valuemax="100">
+                                                                                </div>
+                                                                                <div class="progress-bar dark-green" data-toggle="tooltip"
                                                                                     data-placement="bottom"
                                                                                     title="{{ 'Onsite Inspection | ' . Carbon\Carbon::parse($multiPixel['insp_start'])->format('h:i A') . ' to ' . Carbon\Carbon::parse($multiPixel['insp_end'])->format('h:i A') . ' | Order - ' . $multiPixel['order_no'] }}"
                                                                                     role="progressbar"
                                                                                     style="padding : 0%; min-width  : {{ $multiPixel['insp_pixels'] ? $multiPixel['insp_pixels'] . 'px !important' : '0%' }}"
-                                                                                    aria-valuenow="30" aria-valuemin="0"
-                                                                                    aria-valuemax="100"></div>
-                                                                                <div class="progress-bar bg-secondary"
-                                                                                    data-toggle="tooltip"
+                                                                                    aria-valuenow="30" aria-valuemin="0" aria-valuemax="100">
+                                                                                </div>
+                                                                                <div class="progress-bar bg-secondary" data-toggle="tooltip"
                                                                                     data-placement="bottom"
                                                                                     title="{{ 'Waiting | ' . Carbon\Carbon::parse($multiPixel['waiting_start'])->format('h:i A') . ' to ' . Carbon\Carbon::parse($multiPixel['waiting_end'])->format('h:i A') . ' | Order - ' . $multiPixel['order_no'] }}"
                                                                                     role="progressbar"
                                                                                     style="padding : 0%; min-width  : {{ $multiPixel['waiting_pixels'] ? $multiPixel['waiting_pixels'] . 'px !important' : '0%' }}"
-                                                                                    aria-valuenow="30" aria-valuemin="0"
-                                                                                    aria-valuemax="100"></div>
+                                                                                    aria-valuenow="30" aria-valuemin="0" aria-valuemax="100">
+                                                                                </div>
 
-                                                                                <div class="progress-bar dark-blue"
-                                                                                    data-toggle="tooltip"
+                                                                                <div class="progress-bar dark-blue" data-toggle="tooltip"
                                                                                     data-placement="bottom"
                                                                                     title="{{ 'Pouring | ' . Carbon\Carbon::parse($multiPixel['pouring_start'])->format('h:i A') . ' to ' . Carbon\Carbon::parse($multiPixel['pouring_end'])->format('h:i A') . ' | Order - ' . $multiPixel['order_no'] }}"
                                                                                     role="progressbar"
                                                                                     style="padding : 0%; min-width  : {{ $multiPixel['pouring_pixels'] ? $multiPixel['pouring_pixels'] . 'px !important' : '0%' }}"
-                                                                                    aria-valuenow="30" aria-valuemin="0"
-                                                                                    aria-valuemax="100"></div>
-                                                                                <div class="progress-bar nevy-blue"
-                                                                                    data-toggle="tooltip"
+                                                                                    aria-valuenow="30" aria-valuemin="0" aria-valuemax="100">
+                                                                                </div>
+                                                                                <div class="progress-bar nevy-blue" data-toggle="tooltip"
                                                                                     data-placement="bottom"
                                                                                     title="{{ 'Cleaning | ' . Carbon\Carbon::parse($multiPixel['cleaning_start'])->format('h:i A') . ' to ' . Carbon\Carbon::parse($multiPixel['cleaning_end'])->format('h:i A') . ' | Order - ' . $multiPixel['order_no'] }}"
                                                                                     role="progressbar"
                                                                                     style="padding : 0%; min-width  : {{ $multiPixel['cleaning_pixels'] ? $multiPixel['cleaning_pixels'] . 'px !important' : '0%' }}"
-                                                                                    aria-valuenow="30" aria-valuemin="0"
-                                                                                    aria-valuemax="100"></div>
-                                                                                <div class="progress-bar light-green"
-                                                                                    data-toggle="tooltip"
+                                                                                    aria-valuenow="30" aria-valuemin="0" aria-valuemax="100">
+                                                                                </div>
+                                                                                <div class="progress-bar light-green" data-toggle="tooltip"
                                                                                     data-placement="bottom"
                                                                                     title="{{ 'Return | ' . Carbon\Carbon::parse($multiPixel['return_start'])->format('h:i A') . ' to ' . Carbon\Carbon::parse($multiPixel['return_end'])->format('h:i A') . ' | Order - ' . $multiPixel['order_no'] }}"
                                                                                     role="progressbar"
                                                                                     style="padding : 0%; min-width  : {{ $multiPixel['return_pixels'] ? $multiPixel['return_pixels'] . 'px !important' : '0%' }}"
-                                                                                    aria-valuenow="30" aria-valuemin="0"
-                                                                                    aria-valuemax="100"></div>
+                                                                                    aria-valuenow="30" aria-valuemin="0" aria-valuemax="100">
+                                                                                </div>
                                                                             @endforeach
 
                                                                         </div>
@@ -1304,8 +1257,7 @@
                                 <div class="form-group position-relative">
                                     <input type="email" class="form-control search-byinpt padding-right"
                                         placeholder="Search By...">
-                                    <img src="{{ asset('assets/img/fill-search.svg') }}" class="fill-serchimg"
-                                        alt="">
+                                    <img src="{{ asset('assets/img/fill-search.svg') }}" class="fill-serchimg" alt="">
                                 </div>
                             </div>
                             <div class="col-md-8 text-sm-right">
@@ -1328,8 +1280,8 @@
                                     Onsite Inspection </span>
                                 <span class="schedule-chartvalue mr-sm-2 mr-1"> <span class="dots-box bg-yellow"></span>
                                     Pump Installation </span>
-                                <span class="schedule-chartvalue mr-sm-2 mr-1"> <span
-                                        class="dots-box bg-secondary"></span> Waiting </span>
+                                <span class="schedule-chartvalue mr-sm-2 mr-1"> <span class="dots-box bg-secondary"></span>
+                                    Waiting </span>
                                 <span class="schedule-chartvalue mr-sm-2 mr-1"> <span class="dots-box  pouring"></span>
                                     Pouring </span>
                                 <br>
@@ -1368,7 +1320,7 @@
                                                 @endforeach
                                             </tr>
                                             @foreach ($pumps['resData'] as $locationKey => $locationValue)
-                                                <tr class = "secound-table">
+                                                <tr class="secound-table">
                                                     <td colspan="4">
                                                         {{ $locationKey }}
                                                     </td>
@@ -1404,24 +1356,24 @@
 
                                                 @foreach ($locationValue as $res)
                                                     <tr>
-                                                        <td class = "{{ $res['pump'] ? '' : 'orange-bgtd' }}">
+                                                        <td class="{{ $res['pump'] ? '' : 'orange-bgtd' }}">
                                                             <div class="d-flex justify-content-between align-items-center">
                                                                 <div>
                                                                     {{ $res['pump'] }}
-                                                                    <span class = "text-muted small">
+                                                                    <span class="text-muted small">
                                                                         ({{ $res['capacity'] }} m)
                                                                     </span>
                                                                     <br />
-                                                                    <span class = "small">
+                                                                    <span class="small">
                                                                         {{ intval($res['total_time'] / 60) }}:{{ intval($res['total_time'] % 60) }}
                                                                         hrs
                                                                     </span>
                                                                     &nbsp;
-                                                                    <span class = "small">
+                                                                    <span class="small">
                                                                         {{ $res['total_batching_qty'] }} CUM
                                                                     </span>
                                                                     &nbsp;
-                                                                    <span class = "small">
+                                                                    <span class="small">
                                                                         {{ number_format(($res['total_batching_qty'] / $pumps['total_batching_qty']) * 100, 0) }}
                                                                         %
                                                                     </span>
@@ -1441,8 +1393,7 @@
                                                                 }
 
                                                             @endphp
-                                                            <td
-                                                                colspan="{{ isset($resData['colspan']) ? $resData['colspan'] : 1 }}">
+                                                            <td colspan="{{ isset($resData['colspan']) ? $resData['colspan'] : 1 }}">
 
                                                                 @if (isset($resData['id']))
                                                                     <div class="main-progressbox">
@@ -1451,76 +1402,67 @@
 
                                                                             @foreach ($resData['multi_pixels'] as $multiPixel)
                                                                                 @if ($multiPixel['qc_start'] !== $multiPixel['qc_end'])
-                                                                                    <div class="progress-bar pink_pump"
-                                                                                        data-toggle="tooltip"
+                                                                                    <div class="progress-bar pink_pump" data-toggle="tooltip"
                                                                                         data-placement="bottom"
                                                                                         title="{{ 'Internal QC | ' . Carbon\Carbon::parse($multiPixel['qc_start'])->format('h:i A') . ' to ' . Carbon\Carbon::parse($multiPixel['qc_end'])->format('h:i A') . ' | Order - ' . $multiPixel['order_no'] }}"
                                                                                         role="progressbar"
                                                                                         style="margin-left: {{ $multiPixel['margin'] . 'px' }} ;padding : 0%; min-width  : {{ $multiPixel['qc_pixels'] ? $multiPixel['qc_pixels'] . 'px !important' : '0%' }}"
-                                                                                        aria-valuenow="30"
-                                                                                        aria-valuemin="0"
-                                                                                        aria-valuemax="100"></div>
+                                                                                        aria-valuenow="30" aria-valuemin="0" aria-valuemax="100">
+                                                                                    </div>
                                                                                 @endif
-                                                                                <div class="progress-bar purple"
-                                                                                    data-toggle="tooltip"
+                                                                                <div class="progress-bar purple" data-toggle="tooltip"
                                                                                     data-placement="bottom"
                                                                                     title="{{ 'Travel | ' . Carbon\Carbon::parse($multiPixel['travel_start'])->format('h:i A') . ' to ' . Carbon\Carbon::parse($multiPixel['travel_end'])->format('h:i A') . ' | Order - ' . $multiPixel['order_no'] }}"
                                                                                     role="progressbar"
                                                                                     style="padding : 0%; min-width  : {{ $multiPixel['travel_pixels'] ? $multiPixel['travel_pixels'] . 'px !important' : '0%' }}"
-                                                                                    aria-valuenow="30" aria-valuemin="0"
-                                                                                    aria-valuemax="100"></div>
-                                                                                <div class="progress-bar dark-green"
-                                                                                    data-toggle="tooltip"
+                                                                                    aria-valuenow="30" aria-valuemin="0" aria-valuemax="100">
+                                                                                </div>
+                                                                                <div class="progress-bar dark-green" data-toggle="tooltip"
                                                                                     data-placement="bottom"
                                                                                     title="{{ 'Onsite Inspection | ' . Carbon\Carbon::parse($multiPixel['insp_start'])->format('h:i A') . ' to ' . Carbon\Carbon::parse($multiPixel['insp_end'])->format('h:i A') . ' | Order - ' . $multiPixel['order_no'] }}"
                                                                                     role="progressbar"
                                                                                     style="padding : 0%; min-width  : {{ $multiPixel['insp_pixels'] ? $multiPixel['insp_pixels'] . 'px !important' : '0%' }}"
-                                                                                    aria-valuenow="30" aria-valuemin="0"
-                                                                                    aria-valuemax="100"></div>
+                                                                                    aria-valuenow="30" aria-valuemin="0" aria-valuemax="100">
+                                                                                </div>
 
-                                                                                <div class="progress-bar yellow"
-                                                                                    data-toggle="tooltip"
+                                                                                <div class="progress-bar yellow" data-toggle="tooltip"
                                                                                     data-placement="bottom"
                                                                                     title="{{ 'Pump Install | ' . Carbon\Carbon::parse($multiPixel['install_start'])->format('h:i A') . ' to ' . Carbon\Carbon::parse($multiPixel['install_end'])->format('h:i A') . ' | Order - ' . $multiPixel['order_no'] }}"
                                                                                     role="progressbar"
                                                                                     style="padding : 0%; min-width  : {{ $multiPixel['install_pixels'] ? $multiPixel['install_pixels'] . 'px !important' : '0%' }}"
-                                                                                    aria-valuenow="30" aria-valuemin="0"
-                                                                                    aria-valuemax="100"></div>
-                                                                                <div class="progress-bar bg-secondary"
-                                                                                    data-toggle="tooltip"
+                                                                                    aria-valuenow="30" aria-valuemin="0" aria-valuemax="100">
+                                                                                </div>
+                                                                                <div class="progress-bar bg-secondary" data-toggle="tooltip"
                                                                                     data-placement="bottom"
                                                                                     title="{{ 'Pump Waiting | ' . Carbon\Carbon::parse($multiPixel['waiting_start'])->format('h:i A') . ' to ' . Carbon\Carbon::parse($multiPixel['waiting_end'])->format('h:i A') . ' | Order - ' . $multiPixel['order_no'] }}"
                                                                                     role="progressbar"
                                                                                     style="padding : 0%; min-width  : {{ $multiPixel['waiting_pixels'] ? $multiPixel['waiting_pixels'] . 'px !important' : '0%' }}"
-                                                                                    aria-valuenow="30" aria-valuemin="0"
-                                                                                    aria-valuemax="100"></div>
+                                                                                    aria-valuenow="30" aria-valuemin="0" aria-valuemax="100">
+                                                                                </div>
 
 
 
-                                                                                <div class="progress-bar dark-blue"
-                                                                                    data-toggle="tooltip"
+                                                                                <div class="progress-bar dark-blue" data-toggle="tooltip"
                                                                                     data-placement="bottom"
                                                                                     title="{{ 'Pouring | ' . Carbon\Carbon::parse($multiPixel['pouring_start'])->format('h:i A') . ' to ' . Carbon\Carbon::parse($multiPixel['pouring_end'])->format('h:i A') . ' | Order - ' . $multiPixel['order_no'] }}"
                                                                                     role="progressbar"
                                                                                     style="padding : 0%; min-width  : {{ $multiPixel['pouring_pixels'] ? $multiPixel['pouring_pixels'] . 'px !important' : '0%' }}"
-                                                                                    aria-valuenow="30" aria-valuemin="0"
-                                                                                    aria-valuemax="100"></div>
-                                                                                <div class="progress-bar nevy-blue"
-                                                                                    data-toggle="tooltip"
+                                                                                    aria-valuenow="30" aria-valuemin="0" aria-valuemax="100">
+                                                                                </div>
+                                                                                <div class="progress-bar nevy-blue" data-toggle="tooltip"
                                                                                     data-placement="bottom"
                                                                                     title="{{ 'Cleaning | ' . Carbon\Carbon::parse($multiPixel['cleaning_start'])->format('h:i A') . ' to ' . Carbon\Carbon::parse($multiPixel['cleaning_end'])->format('h:i A') . ' | Order - ' . $multiPixel['order_no'] }}"
                                                                                     role="progressbar"
                                                                                     style="padding : 0%; min-width  : {{ $multiPixel['cleaning_pixels'] ? $multiPixel['cleaning_pixels'] . 'px !important' : '0%' }}"
-                                                                                    aria-valuenow="30" aria-valuemin="0"
-                                                                                    aria-valuemax="100"></div>
-                                                                                <div class="progress-bar light-green"
-                                                                                    data-toggle="tooltip"
+                                                                                    aria-valuenow="30" aria-valuemin="0" aria-valuemax="100">
+                                                                                </div>
+                                                                                <div class="progress-bar light-green" data-toggle="tooltip"
                                                                                     data-placement="bottom"
                                                                                     title="{{ 'Return | ' . Carbon\Carbon::parse($multiPixel['return_start'])->format('h:i A') . ' to ' . Carbon\Carbon::parse($multiPixel['return_end'])->format('h:i A') . ' | Order - ' . $multiPixel['order_no'] }}"
                                                                                     role="progressbar"
                                                                                     style="padding : 0%; min-width  : {{ $multiPixel['return_pixels'] ? $multiPixel['return_pixels'] . 'px !important' : '0%' }}"
-                                                                                    aria-valuenow="30" aria-valuemin="0"
-                                                                                    aria-valuemax="100"></div>
+                                                                                    aria-valuenow="30" aria-valuemin="0" aria-valuemax="100">
+                                                                                </div>
                                                                             @endforeach
 
                                                                         </div>
@@ -1596,7 +1538,7 @@
     <div class="modal fade schedule-modalcontent" id="reschedule-order" tabindex="-1" role="dialog"
         aria-labelledby="exampleModalLabel" aria-hidden="true">
         <div class="modal-dialog" role="document">
-            <div class="modal-content" style ="margin-top: 35%; width: 110%;">
+            <div class="modal-content" style="margin-top: 35%; width: 110%;">
                 <div class="modal-header border-0">
                     <h5 class="modal-title" id="exampleModalLabel"></h5>
                     <button type="button" class="close" data-dismiss="modal" aria-label="Close">
@@ -1608,15 +1550,15 @@
                         <h6>Reschedule Order</h6>
                     </div>
 
-                    <div class = "row">
+                    <div class="row">
 
                     </div>
 
-                    <div class = "row">
+                    <div class="row">
                         <div class="col-md-6 order-sm-2 order-3">
                             <div class="profileinput-box form-group position-relative">
                                 <label class="selext-label">Schedule Date</label>
-                                <input type="datetime-local" id = "reschedule_order_date"
+                                <input type="datetime-local" id="reschedule_order_date"
                                     class="form-control user-profileinput" placeholder="Enter Schedule Date">
                             </div>
                         </div>
@@ -1624,23 +1566,22 @@
                         <div class="col-md-3 order-sm-2 order-3">
                             <div class="profileinput-box form-group position-relative">
                                 <label class="selext-label">Interval</label>
-                                <input type="number" id = "reschedule_order_interval"
-                                    class="form-control user-profileinput" placeholder="Enter Interval (mins)">
+                                <input type="number" id="reschedule_order_interval" class="form-control user-profileinput"
+                                    placeholder="Enter Interval (mins)">
                             </div>
                         </div>
                         <div class="col-md-3 order-sm-2 order-3">
                             <div class="profileinput-box form-group position-relative">
                                 <label class="selext-label">Deviation %</label>
-                                <input type="number" id = "reschedule_order_deviation"
-                                    class="form-control user-profileinput" placeholder="Enter Interval Deviation (%)">
+                                <input type="number" id="reschedule_order_deviation" class="form-control user-profileinput"
+                                    placeholder="Enter Interval Deviation (%)">
                             </div>
                         </div>
                     </div>
 
 
                     <div class="mt-sm-4 mt-3">
-                        <button type="button" onclick = "updateSingleOrder();"
-                            class="btn apply-btn btn-block">Apply</button>
+                        <button type="button" onclick="updateSingleOrder();" class="btn apply-btn btn-block">Apply</button>
                     </div>
                 </div>
             </div>
@@ -1694,18 +1635,13 @@
                                 <div class="card">
                                     <div class="card-header border-0" id="headingOne">
                                         <h5 class="mb-0">
-                                            <button class="btn btn-link" data-toggle="collapse"
-                                                data-target="#collapseOne" aria-expanded="true"
-                                                aria-controls="collapseOne">
+                                            <button class="btn btn-link" data-toggle="collapse" data-target="#collapseOne"
+                                                aria-expanded="true" aria-controls="collapseOne">
                                                 Transit Mixer
                                                 (@php
                                                     $tm_resource_ctr = 0;
-                                                    $tm_resource->each(function ($firstLevelGroup) use (
-                                                        &$tm_resource_ctr,
-                                                    ) {
-                                                        $firstLevelGroup->each(function ($secondLevelGroup) use (
-                                                            &$tm_resource_ctr,
-                                                        ) {
+                                                    $tm_resource->each(function ($firstLevelGroup) use (&$tm_resource_ctr, ) {
+                                                        $firstLevelGroup->each(function ($secondLevelGroup) use (&$tm_resource_ctr, ) {
                                                             $tm_resource_ctr += $secondLevelGroup->count();
                                                         });
                                                     });
@@ -1728,8 +1664,7 @@
                                                     @foreach ($tm_resource_val as $tm_resource_cap => $tm_resource_cap_val)
                                                         <div class="col-md-3 col-6 mb-2 mb-sm-0">
                                                             <div class="resource-requirementcontentbox">
-                                                                <div
-                                                                    class="d-flex align-items-center justify-content-between">
+                                                                <div class="d-flex align-items-center justify-content-between">
                                                                     <p>{{ $tm_resource_cap }} CUM</p>
                                                                     <h6>{{ count($tm_resource_cap_val) }}</h6>
                                                                 </div>
@@ -1751,12 +1686,8 @@
                                                 aria-controls="collapseTwo">
                                                 Batching Plants (@php
                                                     $bp_resource_ctr = 0;
-                                                    $bp_resource->each(function ($firstLevelGroup) use (
-                                                        &$bp_resource_ctr,
-                                                    ) {
-                                                        $firstLevelGroup->each(function ($secondLevelGroup) use (
-                                                            &$bp_resource_ctr,
-                                                        ) {
+                                                    $bp_resource->each(function ($firstLevelGroup) use (&$bp_resource_ctr, ) {
+                                                        $firstLevelGroup->each(function ($secondLevelGroup) use (&$bp_resource_ctr, ) {
                                                             $bp_resource_ctr += $secondLevelGroup->count();
                                                         });
                                                     });
@@ -1779,8 +1710,7 @@
                                                     @foreach ($bp_resource_val as $bp_resource_cap => $bp_resource_cap_val)
                                                         <div class="col-md-3 col-6 mb-2 mb-sm-0">
                                                             <div class="resource-requirementcontentbox">
-                                                                <div
-                                                                    class="d-flex align-items-center justify-content-between">
+                                                                <div class="d-flex align-items-center justify-content-between">
                                                                     <p>{{ $bp_resource_cap }} m3/hr</p>
                                                                     <h6>{{ count($bp_resource_cap_val) }}</h6>
                                                                 </div>
@@ -1801,15 +1731,9 @@
                                                 aria-controls="collapseThree">
                                                 Pumps (@php
                                                     $p_resource_ctr = 0;
-                                                    $p_resource->each(function ($firstLevelGroup) use (
-                                                        &$p_resource_ctr,
-                                                    ) {
-                                                        $firstLevelGroup->each(function ($secondLevelGroup) use (
-                                                            &$p_resource_ctr,
-                                                        ) {
-                                                            $secondLevelGroup->each(function ($thirdLevelGroup) use (
-                                                                &$p_resource_ctr,
-                                                            ) {
+                                                    $p_resource->each(function ($firstLevelGroup) use (&$p_resource_ctr, ) {
+                                                        $firstLevelGroup->each(function ($secondLevelGroup) use (&$p_resource_ctr, ) {
+                                                            $secondLevelGroup->each(function ($thirdLevelGroup) use (&$p_resource_ctr, ) {
                                                                 $p_resource_ctr += $thirdLevelGroup->count();
                                                             });
                                                         });
@@ -1831,12 +1755,8 @@
                                                 <label class="requirementaccordion-label">{{ $p_resource_loc }}
                                                     (@php
                                                         $p_resource_val_ctr = 0;
-                                                        $p_resource_val->each(function ($firstLevelGroup) use (
-                                                            &$p_resource_val_ctr,
-                                                        ) {
-                                                            $firstLevelGroup->each(function ($secondLevelGroup) use (
-                                                                &$p_resource_val_ctr,
-                                                            ) {
+                                                        $p_resource_val->each(function ($firstLevelGroup) use (&$p_resource_val_ctr, ) {
+                                                            $firstLevelGroup->each(function ($secondLevelGroup) use (&$p_resource_val_ctr, ) {
                                                                 $p_resource_val_ctr += $secondLevelGroup->count();
                                                             });
                                                         });
@@ -1851,8 +1771,7 @@
                                                             @foreach ($p_resource_type_val as $p_resource_cap => $p_resource_cap_val)
                                                                 <div class="col-md-3 col-6 mb-2 mb-sm-0">
                                                                     <div class="resource-requirementcontentbox gray">
-                                                                        <div
-                                                                            class="d-flex align-items-center justify-content-between">
+                                                                        <div class="d-flex align-items-center justify-content-between">
                                                                             <p>{{ $p_resource_cap }} m</p>
                                                                             <h6>{{ count($p_resource_cap_val) }}</h6>
                                                                         </div>
@@ -1874,9 +1793,9 @@
         </div>
     </div>
     <script>
-        window.onload = function() {
+        window.onload = function () {
             var form = document.getElementById('publishOrders');
-            form.addEventListener('keydown', function(event) {
+            form.addEventListener('keydown', function (event) {
                 if (event.key === 'Enter') {
                     event.preventDefault(); // Prevent form submission on Enter key press
                 }
@@ -1910,7 +1829,7 @@
 
 
 
-        document.addEventListener('DOMContentLoaded', function() {
+        document.addEventListener('DOMContentLoaded', function () {
             setInputsFromQueryParams();
             var calendarEl = document.getElementById('calendar');
             var calendar = new FullCalendar.Calendar(calendarEl, {
@@ -1923,7 +1842,7 @@
                 dayMaxEvents: true, // allow "more" link when too many events
 
                 selectable: true,
-                select: function(start) {
+                select: function (start) {
                     // Update the hidden input with the selected date
                     selectedDateInput.value = start.startStr;
                     selectedDateLabel.innerHTML = moment(start.startStr).format("dddd, D MMMM YYYY");
@@ -1954,7 +1873,7 @@
                     interval_deviation: document.getElementById("reschedule_order_deviation").value,
                     '_token': '{{ csrf_token() }}'
                 },
-                success: function(data) {
+                success: function (data) {
                     $('#reschedule-order').modal('hide')
                     $('#schedule-modal').modal('show')
                     // API request is complete, hide the modal
@@ -1972,7 +1891,7 @@
                             '_token': '{{ csrf_token() }}'
                         },
 
-                        success: function(data) {
+                        success: function (data) {
 
                             $('#schedule-modal').modal('hide')
 
@@ -1981,14 +1900,14 @@
 
                             // Process the API response as needed
                         },
-                        error: function(error) {
+                        error: function (error) {
                             // Handle errors if necessary
                         }
                     });
 
                     // Process the API response as needed
                 },
-                error: function(error) {
+                error: function (error) {
                     // Handle errors if necessary
                 }
             });
@@ -2063,7 +1982,7 @@
                     '_token': '{{ csrf_token() }}'
                 },
 
-                success: function(data) {
+                success: function (data) {
 
                     $('#schedule-modal').modal('hide')
 
@@ -2072,7 +1991,7 @@
 
                     // Process the API response as needed
                 },
-                error: function(error) {
+                error: function (error) {
                     // Handle errors if necessary
                     $('#schedule-modal').modal('hide')
                 }
@@ -2081,7 +2000,7 @@
         }
 
         // Add event listener to input field
-        document.getElementById("interval_deviation_input").addEventListener("keyup", function(event) {
+        document.getElementById("interval_deviation_input").addEventListener("keyup", function (event) {
             // Check if the Enter key is pressed (key code 13)
             if (event.keyCode === 13) {
                 // Call your function
@@ -2091,6 +2010,44 @@
 
         function redirectToLiveOrder() {
             window.location.href = "{{ route('web.order.live.schedule') }}"
+        }
+        function exportSchedule() {
+            var scheduleDate = getQueryParam('schedule_date');
+            var companyId = getQueryParam('company_id');
+
+            if (!scheduleDate || !companyId) {
+                alert('Missing schedule date or company. Please reload the page.');
+                return;
+            }
+
+            // Visual feedback — disable button while downloading
+            var btn = document.getElementById('export-btn-text');
+            var orig = btn ? btn.innerText : 'Export';
+            if (btn) {
+                btn.innerText = 'Exporting...';
+                btn.closest('button').disabled = true;
+            }
+
+            // Build the download URL and trigger it
+            var url = "{{ route('orders.schedule.export') }}"
+                + '?schedule_date=' + encodeURIComponent(scheduleDate)
+                + '&company_id=' + encodeURIComponent(companyId);
+
+            // Create a temporary anchor to trigger the file download
+            var a = document.createElement('a');
+            a.href = url;
+            a.download = '';          // browser keeps the server-provided filename
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+
+            // Re-enable button after a short delay (download starts in background)
+            setTimeout(function () {
+                if (btn) {
+                    btn.innerText = orig;
+                    btn.closest('button').disabled = false;
+                }
+            }, 3000);
         }
     </script>
 @endsection

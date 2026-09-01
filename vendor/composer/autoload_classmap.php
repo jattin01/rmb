@@ -25,6 +25,7 @@ return array(
     'App\\Exports\\ProductMixExport' => $baseDir . '/app/Exports/ProductMixExport.php',
     'App\\Exports\\ProductMixTypeExport' => $baseDir . '/app/Exports/ProductMixTypeExport.php',
     'App\\Exports\\PumpExport' => $baseDir . '/app/Exports/PumpExport.php',
+    'App\\Exports\\ScheduleExport' => $baseDir . '/app/Exports/ScheduleExport.php',
     'App\\Exports\\StructureExport' => $baseDir . '/app/Exports/StructureExport.php',
     'App\\Exports\\TransitMixerExport' => $baseDir . '/app/Exports/TransitMixerExport.php',
     'App\\Exports\\UserExport' => $baseDir . '/app/Exports/UserExport.php',

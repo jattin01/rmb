@@ -2,3 +2,4 @@ firebase-adminsdk-*.json
 antfast-*-firebase-adminsdk-*.json
 *.json
 .env
+.env

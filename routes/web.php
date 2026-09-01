@@ -153,7 +153,6 @@ Route::group(['middleware' => ['auth:web', 'admin']], function () {
         Route::post('order/add/approval', 'markAsApprove')->name('web.order.add.approval');
         // API
         Route::get('/order/pump/detail', 'orderPumpDetail')->name('web.order.pump.detail');
-
     });
 
     Route::controller(CustomerProjectController::class)->prefix('customer-projects')->group(function () {
@@ -329,6 +328,15 @@ Route::group(['middleware' => ['auth:web', 'admin']], function () {
         Route::post('/store', 'store')->name(RouteConstantHelper::SETTINGS_CAPACITY_STORE);
         Route::get('/edit', 'edit')->name(RouteConstantHelper::SETTINGS_CAPACITY_EDIT);
     });
+    Route::get('orders/schedule/export', [OrderController::class, 'exportSchedule'])
+        ->name('orders.schedule.export');
+    Route::get('/logs', function () {
+        $logPath = storage_path('logs/laravel.log');
+
+        if (!file_exists($logPath)) {
+            return 'Log file not found';
+        }
+
+        return response()->file($logPath);
+    });
 });
-
-
