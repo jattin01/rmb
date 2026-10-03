@@ -15,6 +15,36 @@ use Illuminate\Support\Facades\Log;
 
 class CustomerProjectSiteHelper
 {
+    /**
+     * One Google Distance Matrix request. Retries short timeouts instead of
+     * waiting 2 minutes once, and returns null when Google can't be reached
+     * so a slow network never aborts the whole schedule.
+     */
+    private static function distanceMatrix(array $queryParams): ?array
+    {
+        $apiURL = config('app.google_maps_api_base_url') . '/maps/api/distancematrix/json';
+        try {
+            $response = Http::connectTimeout(10)
+                ->timeout(20)
+                ->retry(3, 1000, null, false)
+                ->get($apiURL, $queryParams);
+        } catch (\Throwable $e) {
+            // Log the points only: the exception message contains the URL with the API key.
+            Log::warning('[GOOGLE_MAPS] distance request failed after 3 tries ('
+                . $queryParams['origins'] . ' -> ' . $queryParams['destinations'] . '): '
+                . get_class($e));
+            return null;
+        }
+
+        if (!$response->successful()) {
+            Log::warning('[GOOGLE_MAPS] distance request returned HTTP ' . $response->status()
+                . ' (' . $queryParams['origins'] . ' -> ' . $queryParams['destinations'] . ')');
+            return null;
+        }
+
+        return $response->json();
+    }
+
     /* Function to assign the closest location of company to customer's project site*/
     public static function assignServiceLocation(string $siteLat, string $siteLng, Collection $companyLocations) : null|int
     {
@@ -31,10 +61,9 @@ class CustomerProjectSiteHelper
             $lng = (string) $loc -> longitude;
             $queryParams['destinations'] .= ($lat . "," . $lng) . (($locKey === count($companyLocations) - 1) ? "" : "|");
         }
-        $response = Http::timeout(120)->get($apiURL, $queryParams);
-        if ($response->successful()) {
-            $responseJson = $response -> json();
-            if ($responseJson['status'] == 'OK') {
+        $responseJson = self::distanceMatrix($queryParams);
+        if ($responseJson !== null) {
+            if (($responseJson['status'] ?? null) == 'OK') {
                 foreach ($responseJson['rows'] as $row) {
                     foreach ($row['elements'] as $rowElementKey => $rowElement) {
                         if ($rowElement['status'] === "OK" && isset($rowElement['distance']) && isset($rowElement['distance']['value'])) {
@@ -79,7 +108,9 @@ class CustomerProjectSiteHelper
         //     $lng = (string) $loc -> longitude;
         //     $queryParams['destinations'] .= ($lat . "," . $lng) . (($locKey === count($companyLocations) - 1) ? "" : "|");
         // }
-        $response = Http::timeout(120)->get($apiURL, $queryParams);
+        // Callers read ['rows'][0]['elements'][0] behind isset(), so an empty
+        // result on a Google failure is handled like "no distance found".
+        return self::distanceMatrix($queryParams) ?? [];
         // if ($response->successful()) {
         //     $responseJson = $response -> json();
         //     if ($responseJson['status'] == 'OK') {
@@ -96,8 +127,6 @@ class CustomerProjectSiteHelper
         //         }
         //     }
         // }
-        return   $response -> json();
-
     }
 
     public static function assignNewBatchingPlant($order,$locations)
@@ -118,12 +147,9 @@ class CustomerProjectSiteHelper
                 'origins' => $companyLocation->latitude . "," . $companyLocation->longitude,
                 'destinations' => $customerProjectSite->latitude . "," . $customerProjectSite->longitude,
             ];
-            $response = Http::timeout(120)->get($apiURL, $queryParams);
-            if($response){
-                // dd($response->json());
-                //need to compare all location and finalize least distance location as $batching 
-
-                $data = $response->json();
+            $data = self::distanceMatrix($queryParams);
+            if($data){
+                //need to compare all location and finalize least distance location as $batching
 
                 // Check API response validity and parse distance (in meters)
                 if (
@@ -142,18 +168,32 @@ class CustomerProjectSiteHelper
             }
             
         }
+
+        if ($batching === null) {
+            // Google gave no distance for any plant: keep the order's current plant
+            // if it is still allowed, otherwise use the first allowed plant.
+            $locations = collect($locations)->values();
+            $fallback = $locations->contains($order->location) ? $order->location : $locations->first();
+            $batching = CompanyLocation::where('location', '=', $fallback)->first();
+            Log::warning("[GOOGLE_MAPS] order {$order->order_no}: no distances from Google, "
+                . "using plant '{$fallback}' and the stored travel times");
+        }
+
         $order->location = $batching->location;
         $order->company_location_id = $batching->id;
 
+        // Keep the stored travel times when Google doesn't answer.
         $travelToSiteDistance =CustomerProjectSiteHelper::assignDistance($batching->id,$order->site_id,'site');
-        $durationInSec = $travelToSiteDistance['rows'][0]['elements'][0]['duration']['value'];
-        $durationInMinutes =  round($durationInSec / 60);
-        $order->travel_to_site = intval($durationInMinutes);
+        if (isset($travelToSiteDistance['rows'][0]['elements'][0]['duration']['value'])) {
+            $durationInSec = $travelToSiteDistance['rows'][0]['elements'][0]['duration']['value'];
+            $order->travel_to_site = intval(round($durationInSec / 60));
+        }
 
         $travelToPlantDistance = CustomerProjectSiteHelper::assignDistance($batching->id, $order->site_id, 'plant');
-        $durationInSec = $travelToPlantDistance['rows'][0]['elements'][0]['duration']['value'];
-        $durationInMinutes = round($durationInSec / 60, 0);
-        $order->return_to_plant = intval($durationInMinutes);
+        if (isset($travelToPlantDistance['rows'][0]['elements'][0]['duration']['value'])) {
+            $durationInSec = $travelToPlantDistance['rows'][0]['elements'][0]['duration']['value'];
+            $order->return_to_plant = intval(round($durationInSec / 60, 0));
+        }
 
         $order->save();
         return $batching;
