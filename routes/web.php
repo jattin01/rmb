@@ -29,6 +29,7 @@ use App\Http\Controllers\TransitMixerController;
 use App\Http\Controllers\UserController;
 use App\Models\CompanyLocation;
 use Illuminate\Support\Facades\Route;
+use Illuminate\Support\Facades\Artisan;
 
 /*
 |--------------------------------------------------------------------------
@@ -40,6 +41,12 @@ use Illuminate\Support\Facades\Route;
 | be assigned to the "web" middleware group. Make something great!
 |
 */
+Route::get('/restart-queue', function () {
+    Artisan::call('queue:restart');
+    Artisan::call('optimize:clear');
+
+    return 'Queue restarted and cache cleared.';
+});
 
 Route::get('/privacy-policy', function () {
     return view('privacy-policy');
@@ -141,6 +148,9 @@ Route::group(['middleware' => ['auth:web', 'admin']], function () {
 
         Route::post('/orders-schedule-publish', 'publishOrders')->name(RouteConstantHelper::PUBLISH_ORDERS);
         Route::get('/orders-overview', 'ordersOverview')->name(RouteConstantHelper::HOME);
+        Route::get('/orders-schedules-overview', 'ordersScheduleOverview')->name('orders.schedules.overview');
+        Route::get('/orders/schedule-status','scheduleStatus')->name('orders.schedule.status');
+        Route::get('/orders/schedule-overview-row', 'scheduleOverviewRow')->name('orders.schedule.overview.row');
         Route::get('/get/order-creation-data/{groupCompanyId}', 'getCompanyMastersForOrderCreation');
         Route::post('/update/order-site-status', 'updateSiteStatus')->name('web.order.update.site.status');
         Route::get('/edit/order/{orderId}', 'editOrder')->name('web.order.edit.view');
@@ -153,7 +163,6 @@ Route::group(['middleware' => ['auth:web', 'admin']], function () {
         Route::post('order/add/approval', 'markAsApprove')->name('web.order.add.approval');
         // API
         Route::get('/order/pump/detail', 'orderPumpDetail')->name('web.order.pump.detail');
-
     });
 
     Route::controller(CustomerProjectController::class)->prefix('customer-projects')->group(function () {
@@ -329,6 +338,15 @@ Route::group(['middleware' => ['auth:web', 'admin']], function () {
         Route::post('/store', 'store')->name(RouteConstantHelper::SETTINGS_CAPACITY_STORE);
         Route::get('/edit', 'edit')->name(RouteConstantHelper::SETTINGS_CAPACITY_EDIT);
     });
+    Route::get('orders/schedule/export', [OrderController::class, 'exportSchedule'])
+        ->name('orders.schedule.export');
+    Route::get('/logs', function () {
+        $logPath = storage_path('logs/scheduling.log');
+
+        if (!file_exists($logPath)) {
+            return 'Log file not found';
+        }
+
+        return response()->file($logPath);
+    });
 });
-
-

@@ -331,8 +331,13 @@
                             </div>
                             <div class="row mt-sm-5 mt-4 justify-content-center">
                                 <div class="col-md-3 col-8">
-                                    <button class="btn apply-btn btn-block" type="button"
-                                        onclick="generate_schedule();">Continue</button>
+                                    <button id="generate_btn" class="btn apply-btn btn-block" type="button"
+                                        onclick="generate_schedule();">Done</button>
+                                </div>
+                            </div>
+                            <div class="row justify-content-center">
+                                <div class="col-md-8 text-center">
+                                    <p id="schedule_status_msg" class="mt-3" style="display:none;"></p>
                                 </div>
                             </div>
                         </div>
@@ -409,9 +414,13 @@
 
 function generate_schedule() {
 
-    // Show loading modal
-    $('#schedule-modal').modal({ backdrop: 'static', keyboard: false });
-    $('#schedule-modal').modal('show');
+    // Disable immediately so a slow request can't be triggered multiple times.
+    var genBtn = document.getElementById('generate_btn');
+    if (genBtn) {
+        if (genBtn.disabled) { return; }   // already running — ignore extra clicks
+        genBtn.disabled = true;
+        genBtn.textContent = 'Scheduling…';
+    }
 
     var date       = getQueryParam('schedule_date');
     var company_id = getQueryParam('company_id');
@@ -449,7 +458,6 @@ function generate_schedule() {
     $.ajax({
         url: "{{ route('orders.schedule.generate') }}",
         method: 'POST',
-        timeout: 600000, // 10 min timeout
         data: {
             company_id:          company_id,
             schedule_date:       date,
@@ -460,51 +468,59 @@ function generate_schedule() {
             interval_deviation:  localStorage.getItem("interval_deviation"),
             '_token':            '{{ csrf_token() }}'
         },
-        success: function(response) {
-            $('#schedule-modal').modal('hide');
+       success: function(response) {
+    if (window.trackScheduleRun) {
+        window.trackScheduleRun(response.run_id, company_id, date);
+    }
 
-            if (response.status === 'success') {
-                // ✅ Schedule generated — go to view
-                window.location.href = "{{ route('orders.schedule.view') }}?schedule_date=" + date + "&company_id=" + company_id;
-            } else {
-                // ❌ Server returned an error status
-                showScheduleError(response.message || 'Schedule generation failed. Please try again.');
-            }
-        },
-        error: function(xhr, status, error) {
-            $('#schedule-modal').modal('hide');
+    if (window.showScheduleToast) {
+        showScheduleToast(
+            'Scheduling started. You\'ll be notified when it\'s ready.',
+            'info'
+        );
+    }
 
+    var btn = document.getElementById('generate_btn');
+    if (btn) {
+        btn.disabled = true;
+        btn.textContent = 'Scheduling…';
+    }
+
+    // Redirect after 10 seconds
+    setTimeout(function () {
+        window.location.href = "{{ route('orders.schedules.overview') }}";
+    }, 5000); // 10,000 ms = 10 seconds
+}, error: function(xhr, status, error) {
             var message = 'An unexpected error occurred.';
-
-            if (status === 'timeout') {
-                message = 'Schedule generation timed out. The process may still be running — please refresh the page in a moment.';
-            } else if (xhr.responseJSON && xhr.responseJSON.message) {
+            if (xhr.responseJSON && xhr.responseJSON.message) {
                 message = xhr.responseJSON.message;
             } else if (xhr.status === 422) {
                 message = 'Validation error: Please check your inputs and try again.';
-            } else if (xhr.status === 500) {
-                message = 'Server error occurred during schedule generation. Please check logs or try again.';
             } else if (xhr.status === 0) {
                 message = 'Connection lost. Please check your internet connection and try again.';
             }
-
             showScheduleError(message);
         }
     });
 }
 
+function setScheduleStatus(html, color) {
+    var el = document.getElementById('schedule_status_msg');
+    if (el) {
+        el.innerHTML = html;
+        el.style.color = color || '#333';
+        el.style.display = 'block';
+    }
+}
+
 function showScheduleError(message) {
-    // Replace loading modal content with error message
-    $('#schedule-modal .modal-body').html(
-        '<div class="text-center py-4">' +
-            '<i class="fa fa-exclamation-triangle text-danger" style="font-size:48px;"></i>' +
-            '<h5 class="mt-3 text-danger">Schedule Generation Failed</h5>' +
-            '<p class="text-muted mt-2">' + message + '</p>' +
-            '<button type="button" class="btn btn-primary mt-3" data-dismiss="modal">Close</button>' +
-        '</div>'
-    );
-    $('#schedule-modal').modal({ backdrop: true, keyboard: true });
-    $('#schedule-modal').modal('show');
+    // Non-blocking error feedback (no modal).
+    if (window.showScheduleToast) {
+        showScheduleToast(message, 'error');
+    }
+    setScheduleStatus(message, '#dc2626');
+    var btn = document.getElementById('generate_btn');
+    if (btn) { btn.disabled = false; btn.textContent = 'Done'; }
 }
         function getQueryParam(name) {
             var urlParams = new URLSearchParams(window.location.search);

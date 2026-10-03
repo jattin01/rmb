@@ -79,7 +79,7 @@ class PumpHelper
             $endNeed = $pump_end_time instanceof Carbon ? $pump_end_time : Carbon::parse($pump_end_time);
 
             $overlaps = function (Carbon $aStart, Carbon $aEnd, Carbon $bStart, Carbon $bEnd): bool {
-                return $aStart->lte($bEnd) && $aEnd->gte($bStart);
+                return $aStart->lt($bEnd) && $aEnd->gt($bStart);
             };
 
             $canUse = function ($pump) use ($scheduleData, $reqCap, $reqType, $location, $startNeed, $endNeed, &$slots, $overlaps, $qc, $insp,$travel) {
@@ -101,13 +101,13 @@ class PumpHelper
                 $busyStart = $startNeed->copy()->subMinutes($totalTime);
                 $busyEnd = $endNeed->copy();
 
-                $freeFrom = Carbon::parse($pump['free_from']);
-                $freeUpto = Carbon::parse($pump['free_upto']);
+                // $freeFrom = Carbon::parse($pump['free_from']);
+                // $freeUpto = Carbon::parse($pump['free_upto']);
 
-                // must cover whole busy window
-                if ($freeFrom->gte($busyStart) || $freeUpto->lte($busyEnd)) {
-                    return [false, $busyStart, $busyEnd];
-                }
+                // // must cover whole busy window
+                // if ($freeFrom->gt($busyStart) || $freeUpto->lt($busyEnd)) {
+                //     return [false, $busyStart, $busyEnd];
+                // }
 
                 // slot overlap
                 foreach ($slots as $slot) {
@@ -126,7 +126,7 @@ class PumpHelper
 
             $pumpsCol = collect($pumps);
 
-            // ✅ 1) Prefer already-used pumps (reuse if free)
+            //  1) Prefer already-used pumps (reuse if free)
             if (!empty($assinedPumps)) {
                 foreach ($assinedPumps as $preferredName) {
                     $pump = $pumpsCol->firstWhere('pump_name', $preferredName);
@@ -142,17 +142,17 @@ class PumpHelper
                             'order_no' => $order->order_no,
                         ];
 
-                        Log::info("Picked preferred pump {$pump['pump_name']} for {$order->order_no}", [
-                            'busy_start' => $busyStart->toDateTimeString(),
-                            'busy_end' => $busyEnd->toDateTimeString(),
-                        ]);
+                        // Log::info("Picked preferred pump {$pump['pump_name']} for {$order->order_no}", [
+                        //     'busy_start' => $busyStart->toDateTimeString(),
+                        //     'busy_end' => $busyEnd->toDateTimeString(),
+                        // ]);
 
                         return ['pump' => $pump, 'index' => $pumpsCol->search(fn($x) => (int) $x['pump_id'] == (int) $pump['pump_id'])];
                     }
                 }
             }
 
-            // ✅ 2) FIFO pick from all candidates
+            //  2) FIFO pick from all candidates
             $candidates = [];
             foreach ($pumpsCol as $idx => $pump) {
                 [$ok, $busyStart, $busyEnd] = $canUse($pump);
@@ -192,10 +192,10 @@ class PumpHelper
                 'order_no' => $order->order_no,
             ];
 
-            Log::info("Picked pump {$winner['pump_name']} for {$order->order_no}", [
-                'busy_start' => $busyStart->toDateTimeString(),
-                'busy_end' => $busyEnd->toDateTimeString(),
-            ]);
+            // Log::info("Picked pump {$winner['pump_name']} for {$order->order_no}", [
+            //     'busy_start' => $busyStart->toDateTimeString(),
+            //     'busy_end' => $busyEnd->toDateTimeString(),
+            // ]);
 
             return ['pump' => $winner, 'index' => $candidates[0]['index']];
 
@@ -282,6 +282,7 @@ class PumpHelper
 
                     $qcTime = $slotType === 'first' ? $scheduleData->qc_time : 0;
                     $travelTime = $slotType === 'first' ? $order->travel_to_site : 0;
+                    Log::info("Slot Type: " . $slotType . " QC Time: " . $qcTime . " Travel Time: " . $travelTime);
 
                     $returnTime = match ($slotType) {
                         'first' => ScheduleService::getDistance($order->site_id, $nextSlot['location']),

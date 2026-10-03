@@ -82,6 +82,14 @@ class PumpHelper
                     'location' => $schValue['location'],
                     'id' => $schValue['id'],
                     'start_time' => $schValue['qc_start'],
+                    // Anchor used to place the bar in the time-grid. The Orders tab
+                    // (OrderHelper) anchors pump bars on travel_start, which always
+                    // lands inside the visible window. qc_start can fall in the hour
+                    // just before the window (the scheduling engine may start QC late
+                    // on the previous day), so matching on qc_start finds no slot and
+                    // the whole bar disappears. Anchor on travel_start here too so the
+                    // Pumps tab behaves like the Orders tab.
+                    'match_time' => $schValue['travel_start'],
                     'end_time' => $schValue['return_end'],
                     'total_time' => Carbon::parse($schValue['qc_start'])->diffInMinutes($schValue['return_end']),
                     'total_actual_time' => Carbon::parse($schValue['qc_start'])->diffInMinutes($schValue['return_end']),
@@ -140,10 +148,19 @@ class PumpHelper
             $scheduleData = [];
             $scheduleStripeData = [];
             $new_i = 1;
-            $dTFSsch = date(ConstantHelper::DATE_HOUR_ONLY_FORMAT, strtotime($scheduleVal['start_time']));
+            // Use the same grid-anchor the Orders tab uses (travel_start). Fall back
+            // to start_time if travel_start is unavailable for any reason.
+            $anchorTime = !empty($scheduleVal['match_time']) ? $scheduleVal['match_time'] : $scheduleVal['start_time'];
+            $dTFSsch = date(ConstantHelper::DATE_HOUR_ONLY_FORMAT, strtotime($anchorTime));
             $dTFEsch = date(ConstantHelper::DATE_HOUR_ONLY_FORMAT, strtotime($scheduleVal['end_time']));
 
+            $matched = false;
+            $firstSlotIndex = null;
+
             foreach ($slots as $timeKey => $timeValue) {
+                if ($firstSlotIndex === null) {
+                    $firstSlotIndex = count($scheduleData); // remember position of first slot
+                }
                 if ($dTFSsch == $timeValue['end_time_date']) {
                     $schData = self::scheduleDataPumps($scheduleVal);
                     $new_i = $schData['colspan'];
@@ -151,6 +168,7 @@ class PumpHelper
                     array_push($schArray, $schData);
                     array_push($scheduleData, $schData);
                     array_push($scheduleStripeData, $schData['stripe']);
+                    $matched = true;
                 } else {
                     if ($new_i > 1) {
                         $new_i--;
@@ -162,6 +180,19 @@ class PumpHelper
                     array_push($scheduleData, $schData);
                 }
             }
+
+            // Safety net: if the anchor fell before the visible window (e.g. the
+            // pump started the previous evening but pours after midnight), no slot
+            // matched and the row would render empty. Drop the bar into the first
+            // visible slot so the schedule is still shown, mirroring the Orders tab.
+            if (!$matched && $firstSlotIndex !== null && isset($scheduleData[$firstSlotIndex])) {
+                $schData = self::scheduleDataPumps($scheduleVal);
+                $schData['slot'] = $scheduleData[$firstSlotIndex]['slot'];
+                $scheduleData[$firstSlotIndex] = $schData;
+                array_push($schArray, $schData);
+                array_push($scheduleStripeData, $schData['stripe']);
+            }
+
             $new_schedules[$valkey]['resultData'] = $scheduleData;
             $new_schedules[$valkey]['stripe_data'] = $scheduleStripeData;
         }

@@ -579,7 +579,7 @@
                                                     <label class="selext-label">No. of Pumps</label>
                                                     <input type="number" class="form-control user-profileinput"
                                                         value = "{{ $orderPump->qty }}" placeholder="Enter"
-                                                        name = "no_of_pumps[]">
+                                                        name = "no_of_pumps[]" oninput="toggleStandbyPumpVisibility()">
                                                 </div>
                                             </div>
                                         </div>
@@ -646,7 +646,8 @@
                                                 <div class="profileinput-box form-group position-relative">
                                                     <label class="selext-label">No. of Pumps</label>
                                                     <input type="number" class="form-control user-profileinput"
-                                                        placeholder="Enter" name = "no_of_pumps[]">
+                                                        placeholder="Enter" name = "no_of_pumps[]"
+                                                        oninput="toggleStandbyPumpVisibility()">
                                                 </div>
                                             </div>
                                         </div>
@@ -669,6 +670,19 @@
                                         </div>
                                     </div>
                                 @endforelse
+
+                                @php
+                                    $standbyTotalPumpQty = collect($order->order_pumps)->sum('qty');
+                                @endphp
+                                <div id="standby_pump_check_wrap"
+                                    class="filter-check mt-sm-3 {{ $standbyTotalPumpQty > 1 ? '' : 'hidden_content' }}">
+                                    <input type="checkbox" class="filled-in" id="standbyPumpCheck"
+                                        name="standby_pump_required"
+                                        {{ $order->standby_pump_required ? 'checked' : '' }}>
+                                    <label class="temperature-label" for="standbyPumpCheck">
+                                        Standby Pump Required ?
+                                    </label>
+                                </div>
 
                             </div>
 
@@ -863,6 +877,11 @@
                 $('.pump_size_dropdown').select2({
                     placeholder: 'Select Size'
                 });
+                // Sync the "Standby Pump Required" control with the order's
+                // existing pump count on load.
+                if (typeof toggleStandbyPumpVisibility === 'function') {
+                    toggleStandbyPumpVisibility();
+                }
             });
 
 
@@ -1036,7 +1055,7 @@
                                     <div class="form-group">
                                         <div class="profileinput-box form-group position-relative">
                                             <label class="selext-label">No. of Pumps</label>
-                                            <input type="number" id = "no_of_pumps_${index}" name = "no_of_pumps[]" class="form-control user-profileinput" placeholder="Enter">
+                                            <input type="number" id = "no_of_pumps_${index}" name = "no_of_pumps[]" class="form-control user-profileinput" placeholder="Enter" oninput="toggleStandbyPumpVisibility()">
                                         </div>
                                     </div>
                             </div>
@@ -1057,7 +1076,15 @@
                                 </span>
                             </div>
         `;
-                document.getElementById('pump_req_section').appendChild(tempDiv);
+                var pumpSection = document.getElementById('pump_req_section');
+                var standbyWrap = document.getElementById('standby_pump_check_wrap');
+                if (standbyWrap) {
+                    // Keep the "Standby Pump Required" control as the last element
+                    // of the pump section by inserting new rows before it.
+                    pumpSection.insertBefore(tempDiv, standbyWrap);
+                } else {
+                    pumpSection.appendChild(tempDiv);
+                }
 
                 $('.pump_size_dropdown').select2({
                     placeholder: 'Select Size'
@@ -1065,7 +1092,36 @@
                 $('.pump_type_dropdown').select2({
                     placeholder: 'Select Type'
                 });
+                toggleStandbyPumpVisibility();
 
+            }
+
+            // Show the "Standby Pump Required" checkbox only when the order needs
+            // more than one pump (sum of all "No. of Pumps" inputs > 1). When
+            // hidden it is also unchecked so it never submits for a single-pump
+            // order.
+            function toggleStandbyPumpVisibility() {
+                var inputs = document.getElementsByName('no_of_pumps[]');
+                var total = 0;
+                for (var i = 0; i < inputs.length; i++) {
+                    var v = parseInt(inputs[i].value, 10);
+                    if (!isNaN(v) && v > 0) {
+                        total += v;
+                    }
+                }
+                var wrap = document.getElementById('standby_pump_check_wrap');
+                var checkbox = document.getElementById('standbyPumpCheck');
+                if (!wrap) {
+                    return;
+                }
+                if (total > 1) {
+                    wrap.classList.remove('hidden_content');
+                } else {
+                    wrap.classList.add('hidden_content');
+                    if (checkbox) {
+                        checkbox.checked = false;
+                    }
+                }
             }
 
             function removeTempUI(index) {
@@ -1087,6 +1143,7 @@
                     if (elementToBeRemoved) {
                         elementToBeRemoved.remove();
                     }
+                    toggleStandbyPumpVisibility();
                 }
             }
 

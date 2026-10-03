@@ -52,7 +52,7 @@ class BatchingPlantHelper
                 //'free_upto' => Carbon::parse($schedule_date . ' ' . $bp->shift_end)->addHours(6)->format(ConstantHelper::SQL_DATE_TIME),
 
                  'free_from' => Carbon::parse($schedule_date . ' ' . $bp->shift_start)->subDays(1)->format(ConstantHelper::SQL_DATE_TIME),
-                 'free_upto' => Carbon::parse($schedule_date . ' ' . $bp->shift_end)->addDays(2)->format(ConstantHelper::SQL_DATE_TIME),
+                 'free_upto' => Carbon::parse($schedule_date . ' ' . $bp->shift_end)->addDays(4)->format(ConstantHelper::SQL_DATE_TIME),
 
                 'location' => $bp?->location,
             );
@@ -93,8 +93,7 @@ class BatchingPlantHelper
         return $minValue;
     }
 
-  
-public static function getAvailableBatchingPlants(
+  public static function getAvailableBatchingPlants2(
     $batching_plants,
     $location,
     $loading_start,
@@ -116,7 +115,7 @@ public static function getAvailableBatchingPlants(
 
     $loadingStart = Carbon::parse($loading_start);
     $loadingEnd   = Carbon::parse($loading_end);
-
+   
     // ── Fixed plant — only return that exact plant ────────────────────────
     if ($assignedPlant !== null) {
         foreach ($batching_plants as $key => $plant) {
@@ -164,6 +163,131 @@ public static function getAvailableBatchingPlants(
     $best = $available[0];
     return ['data' => $best['data'], 'index' => $best['index']];
 }
+    public static function getAvailableBatchingPlants(
+        $batching_plants,
+        $location,
+        $loading_start,
+        $loading_end,
+        $restriction_start,
+        $restriction_end,
+        $assignedPlants,
+        $assignedPlant = null,
+        $plantBusySlots = [],
+    ) {
+        // Restriction window check
+        if (
+            isset($restriction_start, $restriction_end) &&
+            Carbon::parse($loading_start)->between(
+                Carbon::parse($restriction_start),
+                Carbon::parse($restriction_end)
+            )
+        ) {
+            return null;
+        }
+
+        $loadingStart = Carbon::parse($loading_start);
+        $loadingEnd   = Carbon::parse($loading_end);
+
+        // Does the loading window overlap any busy slot for this plant?
+        $hasPlantConflict = function (string $plantName) use ($plantBusySlots, $loadingStart, $loadingEnd): bool {
+            foreach ($plantBusySlots as $slot) {
+                if (($slot['plant_id'] ?? null) !== $plantName) continue;
+
+                $slotStart = $slot['start'] instanceof Carbon ? $slot['start'] : Carbon::parse($slot['start']);
+                $slotEnd   = $slot['end']   instanceof Carbon ? $slot['end']   : Carbon::parse($slot['end']);
+
+                if ($loadingStart->lt($slotEnd) && $loadingEnd->gt($slotStart)) {
+                    return true;
+                }
+            }
+            return false;
+        };
+
+        // Does the plant's free window cover [loadingStart .. loadingEnd]?
+        // (location is NOT checked here - it is a ranking preference below.)
+        $fitsWindow = function ($plant) use ($loadingStart, $loadingEnd): bool {
+            if (Carbon::parse($plant['free_from'])->gt($loadingStart)) return false;
+            if (Carbon::parse($plant['free_upto'])->lt($loadingEnd))   return false;
+            return true;
+        };
+
+        // Fixed plant - return that exact plant's earliest-free slot.
+        // Match by plant_name only; a named plant already identifies its own
+        // location, so we no longer drop it just because the order location
+        // differs.
+        if ($assignedPlant !== null) {
+            $assignedCandidates = [];
+
+            foreach ($batching_plants as $key => $plant) {
+                if ($plant['plant_name'] !== $assignedPlant) continue;
+                if (!$fitsWindow($plant))                    continue;
+                if (!empty($plantBusySlots) && $hasPlantConflict($plant['plant_name'])) continue;
+
+                $assignedCandidates[] = [
+                    'data'      => $plant,
+                    'index'     => $key,
+                    'free_from' => Carbon::parse($plant['free_from'])->timestamp,
+                ];
+            }
+
+            if (empty($assignedCandidates)) {
+                return null;
+            }
+
+            usort($assignedCandidates, fn($a, $b) => $a['free_from'] <=> $b['free_from']);
+
+            return [
+                'data'  => $assignedCandidates[0]['data'],
+                'index' => $assignedCandidates[0]['index'],
+            ];
+        }
+
+        // No fixed plant - rank ALL time-fitting plants, any location.
+        // Location is a PREFERENCE tier, not a hard filter, so plants at other
+        // locations are usable when the local ones cannot cover the slot.
+        //
+        // Tier (higher = picked first):
+        //   3  same location + already assigned elsewhere (reuse, stay local)
+        //   2  same location, never used
+        //   1  other location + already assigned elsewhere
+        //   0  other location, never used
+        // Within a tier: earliest free_from wins (FIFO).
+        $candidates = [];
+
+        foreach ($batching_plants as $key => $plant) {
+            if (!$fitsWindow($plant)) continue;
+            if (!empty($plantBusySlots) && $hasPlantConflict($plant['plant_name'])) continue;
+
+            $sameLocation = ((string) ($plant['location'] ?? '') === (string) $location);
+            $preferred    = in_array($plant['plant_name'], $assignedPlants);
+
+            $tier = ($sameLocation ? 2 : 0) + ($preferred ? 1 : 0);
+
+            $candidates[] = [
+                'data'      => $plant,
+                'index'     => $key,
+                'tier'      => $tier,
+                'free_from' => Carbon::parse($plant['free_from'])->timestamp,
+            ];
+        }
+
+        if (empty($candidates)) {
+            return null;
+        }
+
+        usort($candidates, function ($a, $b) {
+            if ($a['tier'] !== $b['tier']) {
+                return $b['tier'] <=> $a['tier']; // higher tier first
+            }
+            return $a['free_from'] <=> $b['free_from']; // FIFO within tier
+        });
+
+        return [
+            'data'  => $candidates[0]['data'],
+            'index' => $candidates[0]['index'],
+        ];
+    }
+
     public static function getAvailableBatchingPlantsNew(
         $batching_plants,
         $company,

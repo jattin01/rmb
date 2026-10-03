@@ -150,7 +150,7 @@
                         onmouseover = "markAsRead(this);"`;
                     }
                     notifcationHtml += `
-                    <div class="new-notificationcontentbox mt-4 mb-4" data-docid = "${docID}" ${onMouseHover} >
+                    <div class="new-notificationcontentbox mt-4 mb-4" style="cursor:pointer;" data-docid = "${docID}" data-redirect = "${data.redirect_web_url || ''}" ${onMouseHover} onclick="openNotification(this)" >
 									<div class="row">
 										<div class="col-md-2 col-3">
 												<img src="{{asset('assets/img/transit_mixer_icon.svg')}}" alt="">
@@ -240,6 +240,20 @@
         });
     }
 
+    // Clicking a notification opens its target page (e.g. the completed schedule).
+    function openNotification(element)
+    {
+        var url = element.getAttribute('data-redirect');
+        if (url) {
+            if (element.dataset.docid) {
+                myFirebaseDb.collection("notifications").doc("{{auth() -> user() -> id}}")
+                    .collection('reminders').doc(element.dataset.docid)
+                    .update({ is_read: true }).catch(function () {});
+            }
+            window.location.href = url;
+        }
+    }
+
     // Function to request notification permission
     function requestNotificationPermission() {
             if (Notification.permission === "default") {
@@ -300,6 +314,108 @@
         // $('.dropdown-menu').on('click', function(event){
         //     event.stopPropagation();
         // });
+    </script>
+
+    <script>
+        // ── Background schedule-run notifications ─────────────────────────────
+        // generate_schedule() dispatches the run to the queue and returns
+        // immediately; we track the run here and notify (toast + browser
+        // notification + the existing notification panel) when it finishes.
+        // Clicking the notification opens the completed schedule.
+        (function () {
+            var SCHEDULE_RUNS_KEY = 'pending_schedule_runs';
+
+            function getRuns() {
+                try { return JSON.parse(localStorage.getItem(SCHEDULE_RUNS_KEY) || '{}'); }
+                catch (e) { return {}; }
+            }
+            function setRuns(m) { localStorage.setItem(SCHEDULE_RUNS_KEY, JSON.stringify(m)); }
+
+            // Lightweight, dependency-free toast (no modal, non-blocking).
+            window.showScheduleToast = function (message, type, onClick) {
+                var colors = { info: '#2563eb', success: '#16a34a', error: '#dc2626' };
+                var el = document.createElement('div');
+                el.textContent = message;
+                el.style.cssText = 'position:fixed;top:20px;right:20px;z-index:99999;max-width:340px;' +
+                    'background:' + (colors[type] || colors.info) + ';color:#fff;padding:14px 18px;' +
+                    'border-radius:8px;box-shadow:0 6px 20px rgba(0,0,0,.18);font-size:14px;line-height:1.4;' +
+                    'cursor:' + (onClick ? 'pointer' : 'default') + ';';
+                if (onClick) { el.addEventListener('click', function () { onClick(); el.remove(); }); }
+                document.body.appendChild(el);
+                setTimeout(function () { if (el.parentNode) { el.remove(); } }, onClick ? 12000 : 5000);
+            };
+
+            // Register a dispatched run so it's tracked across page navigations.
+            window.trackScheduleRun = function (runId, companyId, scheduleDate) {
+                if (!runId) { return; }
+                var runs = getRuns();
+                runs[runId] = { run_id: runId, company_id: companyId, schedule_date: scheduleDate };
+                setRuns(runs);
+            };
+
+            @if (Route::has('orders.schedule.status'))
+            var STATUS_URL = "{{ route('orders.schedule.status') }}";
+            var VIEW_URL   = "{{ route('orders.schedule.view') }}";
+            var USER_ID    = "{{ auth()->user()->id }}";
+            var USER_NAME  = "{{ auth()->user()->name }}";
+
+            function viewUrl(run) {
+                return VIEW_URL + "?schedule_date=" + encodeURIComponent(run.schedule_date) +
+                       "&company_id=" + encodeURIComponent(run.company_id);
+            }
+
+            function notifyReady(run) {
+                var url = viewUrl(run);
+                showScheduleToast('Schedule for ' + run.schedule_date + ' is ready. Click to open.', 'success', function () {
+                    window.location.href = url;
+                });
+                if (window.Notification && Notification.permission === 'granted') {
+                    var n = new Notification('Schedule ready', { body: 'Your schedule for ' + run.schedule_date + ' is ready.' });
+                    n.onclick = function (e) { e.preventDefault(); window.open(url); };
+                }
+                // Persist into the existing notification panel / dot.
+                try {
+                    myFirebaseDb.collection('notifications').doc(USER_ID).collection('reminders').add({
+                        title: 'Schedule ready',
+                        body: 'Your schedule for ' + run.schedule_date + ' is ready.',
+                        created_at: firebase.firestore.FieldValue.serverTimestamp(),
+                        user_name: USER_NAME,
+                        user_id: USER_ID,
+                        is_read: false,
+                        redirect_web_url: url
+                    });
+                } catch (e) { console.log('schedule notif persist failed', e); }
+            }
+
+            function notifyFailed(run, message) {
+                showScheduleToast('Scheduling failed for ' + run.schedule_date + (message ? (': ' + message) : '.'), 'error');
+            }
+
+            function pollScheduleRuns() {
+                var runs = getRuns();
+                var ids = Object.keys(runs);
+                if (!ids.length) { return; }
+                ids.forEach(function (id) {
+                    var run = runs[id];
+                    $.ajax({
+                        url: STATUS_URL,
+                        method: 'GET',
+                        data: { run_id: run.run_id, company_id: run.company_id, schedule_date: run.schedule_date },
+                        success: function (res) {
+                            if (res.status === 'completed' || res.status === 'failed') {
+                                // remove first so other tabs don't double-notify
+                                var cur = getRuns(); delete cur[id]; setRuns(cur);
+                                if (res.status === 'completed') { notifyReady(run); }
+                                else { notifyFailed(run, res.message); }
+                            }
+                        }
+                    });
+                });
+            }
+            setInterval(pollScheduleRuns, 5000);
+            pollScheduleRuns();
+            @endif
+        })();
     </script>
     <!-- BEGIN: Script-->
     @yield('scripts')

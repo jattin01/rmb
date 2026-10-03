@@ -132,6 +132,7 @@ class OrderHelper
                         array_push($pumpScheduleData, $pSchData);
                     }
                 }
+               
                 //Set graph data
                 $data[$key]['pump_schedule'][$pumpKey]['resultData'] = $pumpScheduleData;
                 $data[$key]['pump_schedule'][$pumpKey]['stripe_data'] = $pumpScheduleStripeData;
@@ -350,6 +351,7 @@ class OrderHelper
 
         $startDateTime = Carbon::parse($dTFS);
         $endDateTime = Carbon::parse($dTFE);
+        
 
         $totalHours = Carbon::parse($value['qc_start'])->diffInHours(Carbon::parse($value['return_end']));
         $totalMinutes = $totalHours*60;

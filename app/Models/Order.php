@@ -51,7 +51,8 @@ class Order extends Model implements HasMedia
         'cust_product_id',
         'is_technician_required',
         'is_temp_required',
-        'in_cart'
+        'in_cart',
+        'standby_pump_required'
     ];
 
     protected $hidden = ['deleted_at'];

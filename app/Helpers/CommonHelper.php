@@ -74,41 +74,30 @@ class CommonHelper
         return $a[$key] <=> $b[$key];
     }
 
-    public static function divideTimeEqually(string $startTime, string $endTime, string $scheduleDate): array
-    {
-        // Parse start and end times
-        $startDateTime = Carbon::parse($scheduleDate . " " . $startTime);
-        $endDateTime = Carbon::parse($scheduleDate . " " .  $endTime);
-        $endDateTime->addDay();
+public static function divideTimeEqually(string $startTime, string $endTime, string $scheduleDate): array
+{
+    // Anchor the first column at scheduleDate + startTime, then emit exactly one
+    // column per hour for SCHEDULE_GRAPH_SLOT_HOURS hours. This removes the old
+    // ~48h ceiling (the hard-coded addDay) and the sub-minute slot drift, while
+    // producing the same midnight-anchored hourly axis for the existing config.
+    $startDateTime = Carbon::parse($scheduleDate . " " . $startTime);
+    $totalSlots    = ConstantHelper::SCHEDULE_GRAPH_SLOT_HOURS;
 
-        $totalSlots = ConstantHelper::SCHEDULE_GRAPH_SLOT_HOURS;
+    $slots = [];
+    for ($i = 0; $i < $totalSlots; $i++) {
+        $slotStart = $startDateTime->copy()->addHours($i);
+        $slotEnd   = $startDateTime->copy()->addHours($i + 1);
 
-        // Calculate the total time difference in minutes
-        $totalMinutes = $endDateTime->diffInMinutes($startDateTime);
-
-        // Calculate the duration for each slot
-        $slotDuration = $totalMinutes / $totalSlots;
-
-        // Initialize an array to store the slot start and end times
-        $slots = [];
-
-        // Calculate and store each slot start and end time
-        for ($i = 0; $i < $totalSlots; $i++) {
-            $slotStart = $startDateTime->copy()->addMinutes($i * $slotDuration);
-            $slotEnd = $startDateTime->copy()->addMinutes(($i + 1) * $slotDuration);
-
-            // Store the slot start and end times in the array
-            $slots[] = [
-                'start_time' => $slotStart->format('h A'),
-                'end_time' => $slotEnd->format('h A'),
-                'start_time_date' => $slotEnd->format('Y-m-d h A'),
-                'end_time_date' => $slotEnd->format('Y-m-d h A'),
-            ];
-        }
-
-        return $slots;
+        $slots[] = [
+            'start_time'      => $slotStart->format('h A'),
+            'end_time'        => $slotEnd->format('h A'),
+            'start_time_date' => $slotStart->format('Y-m-d h A'),
+            'end_time_date'   => $slotEnd->format('Y-m-d h A'),
+        ];
     }
 
+    return $slots;
+}
     public static function generateOtp() : int
     {
         return rand(1234, 9999);

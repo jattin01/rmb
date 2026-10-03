@@ -50,7 +50,7 @@ class ConstantHelper
     const DEFAULT_DATE_TIME = "2001-01-01 00:00:00";
     const TO_FROM_LOOP = [1,2];
     const LOADING_TIME = 10; //mins
-    const SCHEDULE_GRAPH_SLOT_HOURS = 40;
+    const SCHEDULE_GRAPH_SLOT_HOURS = 56;
     const TRAVEL_TIME = 30; //mins
     const BOOM_PUMP = "Boom Pump";
     const DATE_HOUR_ONLY_FORMAT = "Y-m-d h A";

@@ -8,21 +8,27 @@ use App\Helpers\BatchingPlantHelper;
 use App\Helpers\CommonHelper;
 use App\Helpers\ConstantHelper;
 use App\Helpers\GroupCompanyHelper;
+use App\Exports\ScheduleExport;
 use App\Helpers\LiveOrderHelper;
 use App\Helpers\OrderApprovalHelper;
 use App\Helpers\OrderHelper;
+use Illuminate\Support\Facades\File;
+use App\Models\ProductType;
+
 use App\Helpers\OrderScheduleHelper;
 use App\Helpers\V2\OrderScheduleHelper as OrderScheduleHelperV2;
 
 use App\Helpers\PumpHelper;
 use App\Helpers\RouteConstantHelper;
 use App\Helpers\TransitMixerHelper;
+
 use App\Imports\OrderImport;
 use App\Imports\PumpImport;
 use App\Imports\TransitMixerImport;
 use App\Models\ApprovalLevel;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Schema;
 use App\Models\ApprovalSetup;
 use App\Models\BatchingPlant;
 use App\Models\BatchingPlantAvailability;
@@ -58,6 +64,7 @@ use App\Lib\Validations\Order as Validator;
 use Illuminate\Validation\ValidationException;
 use App\Helpers\CustomerProjectSiteHelper;
 use App\Lib\Services\ScheduleService;
+use App\Jobs\GenerateScheduleJob;
 
 
 use App\Exports\OrderExport;
@@ -441,6 +448,7 @@ class OrderController extends Controller
         if ($validator->fails()) {
             return redirect()->back()->with(ConstantHelper::WARNING, __("message.invalid_order_step_2"));
         }
+
         try {
             $company_shifts = GroupCompanyHelper::getShiftTime($request->company_id, $request->schedule_date);
             $shift_start = $company_shifts['start_time'];
@@ -448,7 +456,8 @@ class OrderController extends Controller
             $user_id = auth()->user()->id;
 
             DB::beginTransaction();
-            OrderScheduleHelper::deleteUserSchedules($request->company_id, $user_id);
+            OrderScheduleHelper::deleteUserSchedules($request->company_id, $user_id, $request->schedule_date);
+
             $orders = Order::ByCompanyScheduleDate($request->company_id, $shift_start, $shift_end)
                 ->get()->toArray();
 
@@ -460,15 +469,16 @@ class OrderController extends Controller
                     break;
                 }
                 $order['og_order_id'] = $order['id'];
-                $order['location']= CustomerProjectSite::find($order['site_id'])->name;
-                  
+
+                $site = CustomerProjectSite::find($order['site_id']);
+                $order['location'] = $site->name ?? null; // guard against null site
+
                 $order['user_id'] = auth()->user()->id;
                 unset($order['created_at']);
                 unset($order['updated_at']);
                 unset($order['order_status']);
                 unset($order['published_by']);
                 unset($order['id']);
-                // unset($order['site_id']);
                 unset($order['in_cart']);
                 unset($order['structural_reference']);
                 unset($order['approval_status']);
@@ -478,19 +488,35 @@ class OrderController extends Controller
                 unset($order['has_customer_confirmed']);
                 unset($order['remarks']);
             }
-            //Already Published orders
+
             if ($published_flag) {
+                DB::rollBack();
                 return redirect()->back()->with(ConstantHelper::WARNING, __("message.action_already_preformed", ['static' => __("static.publish")]));
             }
-            SelectedOrder::insert($orders);
+
+            if (!empty($orders)) {
+                SelectedOrder::insert($orders);
+            }
 
             DB::commit();
             return redirect()->route("orders.schedule.step.two", [
                 'company_id' => $request->company_id,
                 'schedule_date' => $request->schedule_date,
             ]);
-        } catch (Exception $ex) {
+        } catch (\Throwable $ex) {
+            // \Throwable catches BOTH Exception and Error (TypeError, fatal errors, etc.)
             DB::rollBack();
+
+            Log::error('resetOrders failed', [
+                'message'      => $ex->getMessage(),
+                'file'         => $ex->getFile(),
+                'line'         => $ex->getLine(),
+                'trace'        => $ex->getTraceAsString(),
+                'company_id'   => $request->company_id ?? null,
+                'schedule_date' => $request->schedule_date ?? null,
+                'user_id'      => auth()->id(),
+            ]);
+
             return redirect()->back()->with(ConstantHelper::ERROR, $ex->getMessage());
         }
     }
@@ -516,7 +542,7 @@ class OrderController extends Controller
 
                 $travelToSiteDistance = CustomerProjectSiteHelper::assignDistance($order->company_location_id, $order->site_id, 'site');
                 //    dd($travelToSiteDistance);
-// dump($travelToSiteDistance);
+                // dump($travelToSiteDistance);
                 if ((isset($travelToSiteDistance['rows'][0]['elements'][0]['distance']['value'])) && ($travelToSiteDistance['rows'][0]['elements'][0]['distance']['value'] <= 300000)) {
                     $durationInSec = $travelToSiteDistance['rows'][0]['elements'][0]['duration']['value'];
                     $durationInMinutes = round($durationInSec / 60);
@@ -533,10 +559,21 @@ class OrderController extends Controller
                     $durationInMinutes = round($durationInSec / 60, 0);
                     $order->return_to_plant = intval($durationInMinutes);
                 }
+                $productType      = ProductType::where('type', '=', $order->mix_code)->first();
+                $orderTempControl = OrderTempControl::where('order_id', $order->og_order_id)->first();
+
+                if ($productType) {
+                    $tempLoadingTime = 0;
+                    if ($orderTempControl) {
+                        $tempLoadingTime = $productType->temperature_creation_time;
+                    }
+                    $order->loading_time = $productType->batching_creation_time + $tempLoadingTime;
+                }
+
+
                 // dd($durationInMinutes);
 
             }
-
 
             return view("components.orders.generate_order_step_2", [
                 'orders' => $orders,
@@ -642,11 +679,23 @@ class OrderController extends Controller
                 ->with(ConstantHelper::WARNING, __("message.invalid_order_step_3"));
         }
         try {
+            File::put(storage_path('logs/scheduling.log'), '');
             foreach ($request->orders as $order) {
                 // dd($order);
 
+                $loadingTime = ConstantHelper::LOADING_TIME;
                 $selectedOrder = SelectedOrder::find($order['order_id']);
-                
+                $productType      = ProductType::where('type', '=', $selectedOrder->mix_code)->first();
+                $orderTempControl = OrderTempControl::where('order_id', $selectedOrder->og_order_id)->first();
+
+                if ($productType) {
+                    $tempLoadingTime = 0;
+                    if ($orderTempControl) {
+                        $tempLoadingTime = $productType->temperature_creation_time;
+                    }
+                    $loadingTime = $productType->batching_creation_time + $tempLoadingTime;
+                }
+
 
                 $selectedOrder->fill(
                     [
@@ -659,8 +708,49 @@ class OrderController extends Controller
                         'pouring_time' => $order['pouring_time'],
                         'priority' => $order['priority'],
                         'flexibility' => $order['flexibility'],
+                        'loading_time' => $loadingTime
                     ]
                 );
+                // Pump quantity edited in the step-2 grid. Keep selected_orders
+                // and the order's pump line in sync: the scheduler counts pump
+                // lanes from pump_qty/used_pump but builds the per-lane
+                // capacity/type requirements from order_pumps, so both must agree
+                // or lane assignment runs past the requirements list.
+                if (isset($order['pump_qty']) && $order['pump_qty'] !== '' && $order['pump_qty'] !== null) {
+                    $newPumpQty = max(1, (int) $order['pump_qty']);
+                    $selectedOrder->pump_qty = $newPumpQty;
+                    // Derived columns are recomputed at schedule time; seed sane
+                    // values so nothing reads a stale lane count beforehand.
+                    if (Schema::hasColumn('selected_orders', 'used_pump')) {
+                        $selectedOrder->used_pump = $newPumpQty;
+                    }
+                    if (Schema::hasColumn('selected_orders', 'standby_pump')) {
+                        // standby_pump is the count (req_pump − used_pump),
+                        // recomputed at schedule time; reset it here.
+                        $selectedOrder->standby_pump = 0;
+                    }
+
+                    $pumpRows = $selectedOrder->order_pumps;
+                    if (is_countable($pumpRows) && count($pumpRows) === 1) {
+                        $singlePump = $pumpRows[0];
+                        // The qty column is 'quantity' (read via the model's 'qty'
+                        // accessor); fall back to 'qty' only if that is the real
+                        // column on this install.
+                        $qtyColumn = Schema::hasColumn('order_pumps', 'quantity') ? 'quantity' : 'qty';
+                        $singlePump->{$qtyColumn} = $newPumpQty;
+                        $singlePump->save();
+                    }
+                }
+
+                $this->calculateTolerance($selectedOrder);
+                $this->getMaximumAcceptableDelay($selectedOrder);
+                // req_plants depends on base_interval (set by calculateTolerance),
+                // so compute it AFTER tolerance and BEFORE save so it persists in
+                // the same write.
+                $this->calculateReqPlants($selectedOrder);
+                // lpi_score also depends on is_critical (set by calculateTolerance);
+                // computed here so the scheduler can just read the stored value.
+                $this->calculateAndStoreLpi($selectedOrder);
 
                 $selectedOrder->save();
             }
@@ -700,9 +790,27 @@ class OrderController extends Controller
 
             $order_shift_start = Carbon::parse($shift_start)->subDay()->format(ConstantHelper::SQL_DATE_TIME);
 
+            // Graph window for the schedule-view tabs (order / batching plant /
+            // transit mixer / pump). Anchor on the schedule-day start (the existing
+            // midnight axis), then widen the visible window to:
+            //   previous 8 hours  ->  next 2 days   (== 56 hourly columns,
+            //   ConstantHelper::SCHEDULE_GRAPH_SLOT_HOURS). Adjust subHours()/addDays()
+            //   and the constant together if a different span is needed.
+            $scheduleDayStart = Carbon::parse($request->schedule_date . ' ' . Carbon::parse($shift_start)->format('H:i:s'));
+            $graph_start = $scheduleDayStart->copy()->subHours(8);   // previous evening
+            $graph_end   = $scheduleDayStart->copy()->addDays(2);    // +2 days
+
+            // The slot builder anchors the first column at (graph base date + start
+            // time) and emits one column per hour, so the base date is the previous
+            // day and the start time is the previous evening.
+            $graph_base_date = $graph_start->format('Y-m-d');
+
+            $display_start = $graph_start->copy();
+            $display_end   = $graph_end->copy();
+
 
             $orders = SelectedOrder::with(['schedule', 'pump_schedule'])
-                ->byUserCompanyScheduleDate($request->company_id, auth()->user()->id, $shift_start, $shift_end)
+                ->byUserCompanyScheduleDate($request->company_id, auth()->user()->id, $display_start, $display_end)
                 // -> where("selected", true) -> orderByRaw('start_time IS NULL, start_time ASC') -> get();
                 ->where("selected", true)
                 ->orderBy('start_time', 'ASC')
@@ -714,42 +822,42 @@ class OrderController extends Controller
             $schedulesBP = SelectedOrderSchedule::rightJoin("batching_plants", function ($query) {
                 $query->on("batching_plants.plant_name", "=", "selected_order_schedules.batching_plant");
             })->select(
-                    "batching_plants.capacity",
-                    "selected_order_schedules.schedule_date",
-                    "selected_order_schedules.order_no",
-                    "selected_order_schedules.mix_code",
-                    "selected_order_schedules.location",
-                    "selected_order_schedules.trip",
-                    "selected_order_schedules.batching_qty",
-                    "selected_order_schedules.batching_plant",
-                    "selected_order_schedules.loading_time",
-                    "selected_order_schedules.loading_start",
-                    "selected_order_schedules.loading_end",
-                    "selected_order_schedules.id"
-                )
+                "batching_plants.capacity",
+                "selected_order_schedules.schedule_date",
+                "selected_order_schedules.order_no",
+                "selected_order_schedules.mix_code",
+                "selected_order_schedules.location",
+                "selected_order_schedules.trip",
+                "selected_order_schedules.batching_qty",
+                "selected_order_schedules.batching_plant",
+                "selected_order_schedules.loading_time",
+                "selected_order_schedules.loading_start",
+                "selected_order_schedules.loading_end",
+                "selected_order_schedules.id"
+            )
                 ->where("selected_order_schedules.group_company_id", $request->company_id)
                 ->where("selected_order_schedules.user_id", auth()->user()->id)
-                ->whereBetween("selected_order_schedules.loading_start", [$shift_start, $shift_end])
+                ->whereBetween("selected_order_schedules.loading_start", [$display_start, $display_end])
                 ->orderBy("selected_order_schedules.loading_start")
                 ->get()->toArray();
 
-            $startTime = Carbon::parse($shift_start)->format("H:i");
-            $endTime = (Carbon::parse($startTime)->addHours(39)->addMinutes(59))->format("H:i");
+            $startTime = $graph_start->format("H:i");
+            $endTime   = $graph_end->format("H:i"); // kept for signature compatibility
             // dd($orders);
-            $result = OrderHelper::orderGraphData($orders->toArray(), $startTime, $endTime, $request->schedule_date, count($schedulesBP), $schedulesBP);
+            $result = OrderHelper::orderGraphData($orders->toArray(), $startTime, $endTime, $graph_base_date, count($schedulesBP), $schedulesBP);
 
             //Batching Plant
             $bpScheduleGap = BatchingPlantAvailability::rightJoin("batching_plants", function ($query) {
                 $query->on("batching_plants.plant_name", "=", "batching_plant_availability.plant_name");
             })->select(
-                    "batching_plants.capacity",
-                    "batching_plant_availability.location",
-                    "batching_plant_availability.plant_name",
-                    "batching_plant_availability.free_from",
-                    "batching_plant_availability.free_upto",
-                    "batching_plant_availability.reason",
-                    "batching_plant_availability.id"
-                )
+                "batching_plants.capacity",
+                "batching_plant_availability.location",
+                "batching_plant_availability.plant_name",
+                "batching_plant_availability.free_from",
+                "batching_plant_availability.free_upto",
+                "batching_plant_availability.reason",
+                "batching_plant_availability.id"
+            )
                 ->where("batching_plant_availability.group_company_id", $request->company_id)
                 ->where("batching_plant_availability.user_id", auth()->user()->id)
                 ->orderBy("batching_plant_availability.free_from")
@@ -757,48 +865,48 @@ class OrderController extends Controller
 
 
 
-            $resultBP = BatchingPlantHelper::batchingPlantSchedule($schedulesBP, $startTime, $endTime, $request->schedule_date, $bpScheduleGap);
+            $resultBP = BatchingPlantHelper::batchingPlantSchedule($schedulesBP, $startTime, $endTime, $graph_base_date, $bpScheduleGap);
 
             //Transit Mixer
             $schedulesTM = SelectedOrderSchedule::join("transit_mixers", function ($query) {
                 $query->on("transit_mixers.truck_name", "=", "selected_order_schedules.transit_mixer");
             })->select(
-                    "transit_mixers.truck_capacity",
-                    "selected_order_schedules.schedule_date",
-                    "selected_order_schedules.order_no",
-                    "selected_order_schedules.location",
-                    "selected_order_schedules.trip",
-                    "selected_order_schedules.batching_qty",
-                    "selected_order_schedules.transit_mixer",
-                    "selected_order_schedules.qc_time",
-                    "selected_order_schedules.qc_start",
-                    "selected_order_schedules.qc_end",
-                    "selected_order_schedules.loading_time",
-                    "selected_order_schedules.loading_start",
-                    "selected_order_schedules.loading_end",
-                    "selected_order_schedules.travel_time",
-                    "selected_order_schedules.travel_start",
-                    "selected_order_schedules.travel_end",
-                    "selected_order_schedules.insp_time",
-                    "selected_order_schedules.insp_start",
-                    "selected_order_schedules.insp_end",
-                    "selected_order_schedules.pouring_time",
-                    "selected_order_schedules.pouring_start",
-                    "selected_order_schedules.pouring_end",
+                "transit_mixers.truck_capacity",
+                "selected_order_schedules.schedule_date",
+                "selected_order_schedules.order_no",
+                "selected_order_schedules.location",
+                "selected_order_schedules.trip",
+                "selected_order_schedules.batching_qty",
+                "selected_order_schedules.transit_mixer",
+                "selected_order_schedules.qc_time",
+                "selected_order_schedules.qc_start",
+                "selected_order_schedules.qc_end",
+                "selected_order_schedules.loading_time",
+                "selected_order_schedules.loading_start",
+                "selected_order_schedules.loading_end",
+                "selected_order_schedules.travel_time",
+                "selected_order_schedules.travel_start",
+                "selected_order_schedules.travel_end",
+                "selected_order_schedules.insp_time",
+                "selected_order_schedules.insp_start",
+                "selected_order_schedules.insp_end",
+                "selected_order_schedules.pouring_time",
+                "selected_order_schedules.pouring_start",
+                "selected_order_schedules.pouring_end",
 
-                    "selected_order_schedules.waiting_time",
-                    "selected_order_schedules.waiting_start",
-                    "selected_order_schedules.waiting_end",
+                "selected_order_schedules.waiting_time",
+                "selected_order_schedules.waiting_start",
+                "selected_order_schedules.waiting_end",
 
-                    "selected_order_schedules.cleaning_time",
-                    "selected_order_schedules.cleaning_start",
-                    "selected_order_schedules.cleaning_end",
-                    "selected_order_schedules.return_time",
-                    "selected_order_schedules.return_start",
-                    "selected_order_schedules.return_end",
-                    "selected_order_schedules.id"
-                )
-                ->where("selected_order_schedules.group_company_id", $request->company_id)->where("selected_order_schedules.user_id", auth()->user()->id)->whereBetween("selected_order_schedules.loading_start", [$shift_start, $shift_end])->orderBy("selected_order_schedules.loading_start")
+                "selected_order_schedules.cleaning_time",
+                "selected_order_schedules.cleaning_start",
+                "selected_order_schedules.cleaning_end",
+                "selected_order_schedules.return_time",
+                "selected_order_schedules.return_start",
+                "selected_order_schedules.return_end",
+                "selected_order_schedules.id"
+            )
+                ->where("selected_order_schedules.group_company_id", $request->company_id)->where("selected_order_schedules.user_id", auth()->user()->id)->whereBetween("selected_order_schedules.loading_start", [$display_start, $display_end])->orderBy("selected_order_schedules.loading_start")
                 ->orderBy("selected_order_schedules.loading_start")
                 ->get();
             $uniqueSchedules = $schedulesTM->unique(function ($item) {
@@ -806,53 +914,67 @@ class OrderController extends Controller
             });
 
 
-            $resultTM = TransitMixerHelper::transitMixersSchedule($uniqueSchedules->toArray(), $startTime, $endTime, $request->schedule_date);
+            $resultTM = TransitMixerHelper::transitMixersSchedule($uniqueSchedules->toArray(), $startTime, $endTime, $graph_base_date);
 
             //Pumps
             $schedulesPM = SelectedOrderPumpSchedule::join("pumps", function ($query) {
                 $query->on("pumps.pump_name", "=", "selected_order_pump_schedules.pump");
             })->select(
-                    "pumps.pump_capacity",
-                    "pumps.type",
-                    "pumps.installation_time",
-                    "selected_order_pump_schedules.schedule_date",
-                    "selected_order_pump_schedules.order_no",
-                    "selected_order_pump_schedules.location",
-                    "selected_order_pump_schedules.trip",
-                    "selected_order_pump_schedules.batching_qty",
-                    "selected_order_pump_schedules.pump",
-                    "selected_order_pump_schedules.qc_time",
-                    "selected_order_pump_schedules.qc_start",
-                    "selected_order_pump_schedules.qc_end",
-                    "selected_order_pump_schedules.travel_time",
-                    "selected_order_pump_schedules.travel_start",
-                    "selected_order_pump_schedules.travel_end",
-                    "selected_order_pump_schedules.insp_time",
-                    "selected_order_pump_schedules.insp_start",
-                    "selected_order_pump_schedules.insp_end",
-                    "selected_order_pump_schedules.pouring_time",
-                    "selected_order_pump_schedules.pouring_start",
-                    "selected_order_pump_schedules.pouring_end",
-                    "selected_order_pump_schedules.cleaning_time",
-                    "selected_order_pump_schedules.cleaning_start",
-                    "selected_order_pump_schedules.cleaning_end",
-                    "selected_order_pump_schedules.return_time",
-                    "selected_order_pump_schedules.return_start",
-                    "selected_order_pump_schedules.return_end",
-                    "selected_order_pump_schedules.install_time",
-                    "selected_order_pump_schedules.install_start",
-                    "selected_order_pump_schedules.install_end",
-                    "selected_order_pump_schedules.waiting_time",
-                    "selected_order_pump_schedules.waiting_start",
-                    "selected_order_pump_schedules.waiting_end",
-                    "selected_order_pump_schedules.id"
-                )
+                "pumps.pump_capacity",
+                "pumps.type",
+                "pumps.installation_time",
+                "selected_order_pump_schedules.schedule_date",
+                "selected_order_pump_schedules.order_no",
+                "selected_order_pump_schedules.location",
+                "selected_order_pump_schedules.trip",
+                "selected_order_pump_schedules.batching_qty",
+                "selected_order_pump_schedules.pump",
+                "selected_order_pump_schedules.qc_time",
+                "selected_order_pump_schedules.qc_start",
+                "selected_order_pump_schedules.qc_end",
+                "selected_order_pump_schedules.travel_time",
+                "selected_order_pump_schedules.travel_start",
+                "selected_order_pump_schedules.travel_end",
+                "selected_order_pump_schedules.insp_time",
+                "selected_order_pump_schedules.insp_start",
+                "selected_order_pump_schedules.insp_end",
+                "selected_order_pump_schedules.pouring_time",
+                "selected_order_pump_schedules.pouring_start",
+                "selected_order_pump_schedules.pouring_end",
+                "selected_order_pump_schedules.cleaning_time",
+                "selected_order_pump_schedules.cleaning_start",
+                "selected_order_pump_schedules.cleaning_end",
+                "selected_order_pump_schedules.return_time",
+                "selected_order_pump_schedules.return_start",
+                "selected_order_pump_schedules.return_end",
+                "selected_order_pump_schedules.install_time",
+                "selected_order_pump_schedules.install_start",
+                "selected_order_pump_schedules.install_end",
+                "selected_order_pump_schedules.waiting_time",
+                "selected_order_pump_schedules.waiting_start",
+                "selected_order_pump_schedules.waiting_end",
+                "selected_order_pump_schedules.is_standby",
+                "selected_order_pump_schedules.id"
+            )
                 ->where("selected_order_pump_schedules.group_company_id", $request->company_id)
                 ->where("selected_order_pump_schedules.user_id", auth()->user()->id)
-                ->whereBetween("selected_order_pump_schedules.qc_start", [$shift_start, $shift_end])
-                ->orderBy("selected_order_pump_schedules.pouring_start", 'asc')
+                ->whereBetween("selected_order_pump_schedules.pouring_start", [$display_start, $display_end])
+                ->orderBy("selected_order_pump_schedules.qc_start", 'asc')
                 ->get()->toArray();
-            $resultPM = PumpHelper::pumpsSchedule($schedulesPM, $startTime, $endTime, $request->schedule_date);
+            $resultPM = PumpHelper::pumpsSchedule($schedulesPM, $startTime, $endTime, $graph_base_date);
+
+            // Standby pumps per order ([order_no => [pump_name, ...]]). Used by the
+            // order tab to badge a pump row as "Standby".
+            $standbyPumps = SelectedOrderPumpSchedule::where("group_company_id", $request->company_id)
+                ->where("user_id", auth()->user()->id)
+                ->where("is_standby", true)
+                ->whereBetween("pouring_start", [$display_start, $display_end])
+                ->get(["order_no", "pump"])
+                ->groupBy("order_no")
+                ->map(function ($rows) {
+                    return $rows->pluck("pump")->unique()->values()->all();
+                })
+                ->all();
 
 
             return view("components.orders.order_schedule_match", [
@@ -860,6 +982,7 @@ class OrderController extends Controller
                 'transit_mixer' => $resultTM,
                 'batching_plant' => $resultBP,
                 'pumps' => $resultPM,
+                'standby_pumps' => $standbyPumps,
                 'schedule_preference_select' => [
                     ['label' => 'Customer Timeline', 'value' => 'customer_timeline'],
                     ['label' => 'Largest Job First', 'value' => 'largest_qty_first'],
@@ -970,25 +1093,36 @@ class OrderController extends Controller
             $shift_end = $company_shifts['end_time'];
             $interval_deviation = (int) ($request->interval_deviation ?? 100);
 
-            $scheduleService = new ScheduleService();
-            $scheduleService->initializeSchedule(
+            // Record a run row the front-end can poll, then hand the heavy work to
+            // the queue so the request returns immediately.
+            $runId = DB::table('schedule_runs')->insertGetId([
+                'group_company_id' => $request->company_id,
+                'user_id'          => auth()->user()->id,
+                'schedule_date'    => $request->schedule_date,
+                'status'           => 'queued',
+                'created_at'       => now(),
+                'updated_at'       => now(),
+            ]);
+            //$this->ensureQueueWorkerRunning();
+
+            GenerateScheduleJob::dispatch(
+                $runId,
                 auth()->user()->id,
-                $request->company_id,
+                (int) $request->company_id,
                 $request->schedule_date,
-                $request->transit_mixers,
+                $request->transit_mixers ?? [],
                 $request->pumps ?? [],
-                $request->batching_plants,
-                "",
-                $shift_start,
-                $shift_end,
+                $request->batching_plants ?? [],
+                (string) $shift_start,
+                (string) $shift_end,
                 $interval_deviation
             );
 
             return response()->json([
-                'status' => 'success',
-                'message' => __("message.action_success", ['static' => __("static.publish")])
-            ]);
-
+                'status'  => 'queued',
+                'run_id'  => $runId,
+                'message' => __("message.action_success", ['static' => __("static.publish")]),
+            ], 202);
         } catch (\Exception $ex) {
             Log::error('Generate Schedule Failed: ' . $ex->getMessage() . ' | File: ' . $ex->getFile() . ' | Line: ' . $ex->getLine());
 
@@ -998,7 +1132,142 @@ class OrderController extends Controller
             ], 500);
         }
     }
-    //All Orders Listing
+
+    /**
+     * Poll the status of a background schedule run. Returns the latest run for the
+     * company + date (or the specific run_id if provided). The front-end polls
+     * this after dispatch and shows the schedule once status === 'completed'.
+     */
+    public function scheduleStatus(Request $request)
+    {
+        $query = DB::table('schedule_runs')
+            ->where('group_company_id', $request->company_id)
+            ->where('user_id', auth()->user()->id);
+
+        if ($request->filled('run_id')) {
+            $query->where('id', $request->run_id);
+        } elseif ($request->filled('schedule_date')) {
+            $query->where('schedule_date', $request->schedule_date);
+        }
+
+        $run = $query->orderByDesc('id')->first();
+
+        return response()->json([
+            'status'      => $run->status ?? 'none',
+            'progress'    => (int) ($run->progress ?? 0),   // <-- add this
+            'message'     => $run->message ?? null,
+            'run_id'      => $run->id ?? null,
+            'started_at'  => $run->started_at ?? null,
+            'finished_at' => $run->finished_at ?? null,
+        ]);
+    }
+    public function ordersScheduleOverview(Request $request)
+    {
+        try {
+            $user = auth()->user();
+
+            $search = $request->search;
+
+            $group_company_ids = $user->access_rights->pluck('group_company_id');
+
+            $groupCompanies = $user->access_rights?->pluck('group_company_id');
+            $locationIds = $user->access_rights?->pluck('location_id')->toArray();
+            $groupCompaniesId = $groupCompanies->toArray();
+            $groupCompanies = GroupCompany::select('id', 'id AS value', 'comp_name AS label')->whereIn('id', $groupCompaniesId)
+                ->where('status', ConstantHelper::ACTIVE)->orderByDesc('id')->get();
+
+
+            $orders = SelectedOrder::whereIn('group_company_id', $group_company_ids)
+                ->where('selected', true)
+                ->whereIn('schedule_status', ['processing', 'completed', 'failed'])
+                ->select(
+
+                    DB::raw('DATE(delivery_date) as delivery_date'),
+
+                    DB::raw('SUM(quantity) as total_quantity'),
+
+                    DB::raw('COUNT(*) as total_orders'),
+
+                    DB::raw("GROUP_CONCAT(DISTINCT order_no ORDER BY order_no SEPARATOR ', ') as order_nos"),
+
+                    DB::raw('MAX(schedule_status) as schedule_status'),
+
+                    DB::raw('MAX(group_company_id) as group_company_id')
+
+                )
+
+                ->groupByRaw('DATE(delivery_date)')
+
+                ->orderByDesc(DB::raw('DATE(delivery_date)'))
+
+                ->paginate(ConstantHelper::PAGINATE)
+
+                ->appends($request->query());
+
+            // Plants/pumps live in the schedule tables (keyed by date + company + user),
+
+            // so fill them per visible row.
+
+            $userId = $user->id;
+
+            foreach ($orders as $row) {
+
+                $row->used_plants = SelectedOrderSchedule::where('group_company_id', $row->group_company_id)
+
+                    ->where('user_id', $userId)
+
+                    ->whereDate('schedule_date', $row->delivery_date)
+
+                    ->distinct()
+
+                    ->pluck('batching_plant')
+
+                    ->filter()
+
+                    ->implode(', ');
+
+                $pumpGroups = SelectedOrderPumpSchedule::join('pumps', 'pumps.pump_name', '=', 'selected_order_pump_schedules.pump')
+                    ->where('selected_order_pump_schedules.group_company_id', $row->group_company_id)
+                    ->where('selected_order_pump_schedules.user_id', $userId)
+                    ->whereDate('selected_order_pump_schedules.schedule_date', $row->delivery_date)
+                    ->select(
+                        'pumps.type',
+                        'pumps.pump_capacity',
+                        DB::raw('COUNT(DISTINCT selected_order_pump_schedules.pump) as pump_count')
+                    )
+                    ->groupBy('pumps.type', 'pumps.pump_capacity')
+                    ->get();
+
+                $row->used_pumps = $pumpGroups->map(function ($p) {
+                    $label = trim(($p->type ?? '') . ' ' . ($p->pump_capacity ?? ''));
+                    return ($label !== '' ? $label : 'Pump') . ' ×' . $p->pump_count;
+                })->implode(', ');
+            }
+
+            $customers = Customer::select('id AS value', DB::raw("CONCAT(contact_person, ' - ', name) AS label"))
+
+                ->where([['status', ConstantHelper::ACTIVE]])
+
+                ->wherehas('group_companies', function ($query) use ($groupCompaniesId) {
+
+                    $query->whereIn('group_company_id', $groupCompaniesId);
+                })->get();
+
+            return view('components.orders.orders_schedules_overview', [
+
+                'orders' => $orders,
+
+                'search' => $search,
+
+                'customers' => $customers,
+
+                'groupCompanies' => $groupCompanies
+
+            ]);
+        } catch (Exception $ex) {
+            return view('components.common.internal_error', ['message' => $ex->getMessage()]);
+        }
+    } //All Orders Listing
     public function ordersOverview(Request $request)
     {
         try {
@@ -1208,10 +1477,9 @@ class OrderController extends Controller
                 RouteConstantHelper::HOME,
                 ['group_company_id' => $request->group_company_id]
             )->with(
-                    ConstantHelper::SUCCESS,
-                    __("message.action_success", ['static' => __("static.publish")])
-                );
-
+                ConstantHelper::SUCCESS,
+                __("message.action_success", ['static' => __("static.publish")])
+            );
         } catch (\Exception $ex) {
 
             DB::rollBack();
@@ -1270,7 +1538,7 @@ class OrderController extends Controller
                     //     'cust_product_id' => $order['cust_product_id'],
                     //     'is_technician_required' => $order['is_technician_required'],
                     //     'in_cart' => 0,
-                    //     'customer_id' => $order['customer_id'],
+                    //     'customer_id' => $order['customer_id'],f
                     //     'customer' => $order['customer'],
                     //     'project' => $order['project'],
                     //     'site' => $order['site'],
@@ -1363,19 +1631,19 @@ class OrderController extends Controller
             $schedulesBP = LiveOrderSchedule::rightJoin("batching_plants", function ($query) {
                 $query->on("batching_plants.plant_name", "=", "live_order_schedules.batching_plant");
             })->select(
-                    "batching_plants.capacity",
-                    "live_order_schedules.schedule_date",
-                    "live_order_schedules.order_no",
-                    "live_order_schedules.mix_code",
-                    "live_order_schedules.location",
-                    "live_order_schedules.trip",
-                    "live_order_schedules.batching_qty",
-                    "live_order_schedules.batching_plant",
-                    "live_order_schedules.planned_loading_time",
-                    "live_order_schedules.planned_loading_start",
-                    "live_order_schedules.planned_loading_end",
-                    "live_order_schedules.id"
-                )
+                "batching_plants.capacity",
+                "live_order_schedules.schedule_date",
+                "live_order_schedules.order_no",
+                "live_order_schedules.mix_code",
+                "live_order_schedules.location",
+                "live_order_schedules.trip",
+                "live_order_schedules.batching_qty",
+                "live_order_schedules.batching_plant",
+                "live_order_schedules.planned_loading_time",
+                "live_order_schedules.planned_loading_start",
+                "live_order_schedules.planned_loading_end",
+                "live_order_schedules.id"
+            )
                 ->where("live_order_schedules.group_company_id", $request->company_id)->whereBetween("live_order_schedules.planned_loading_start", [$shiftTimings['start_time'], $shiftTimings['end_time']])->orderBy("live_order_schedules.planned_loading_start")->get()->toArray();
 
             $batchingPlants = BatchingPlant::select('id AS value', 'plant_name AS label')->where([
@@ -1536,6 +1804,7 @@ class OrderController extends Controller
                     'is_temp_required' => isset($request->is_temp_required) ? 1 : 0,
                     'is_technician_required' => $request->is_tech_required ? 1 : 0,
                     'remarks' => $request->remarks ? $request->remarks : null,
+                    'standby_pump_required' => ($request->is_pump_required == "on" && $request->standby_pump_required == "on") ? 1 : 0,
                 ]);
             } else {
                 $projectSite = CustomerProjectSite::find($request->site_id);
@@ -1591,6 +1860,7 @@ class OrderController extends Controller
                     'is_temp_required' => isset($request->is_temp_required) ? 1 : 0,
                     'is_technician_required' => $request->is_tech_required ? 1 : 0,
                     'remarks' => $request->remarks ? $request->remarks : null,
+                    'standby_pump_required' => ($request->is_pump_required == "on" && $request->standby_pump_required == "on") ? 1 : 0,
                 ]);
             }
 
@@ -1813,7 +2083,6 @@ class OrderController extends Controller
 
 
             DB::commit();
-            // dd($request->quantity);
             if ($request->order_id) {
                 return redirect()->route('web.order.live.schedule')->with(ConstantHelper::SUCCESS, 'Order updated successfully');
             }
@@ -2002,5 +2271,358 @@ class OrderController extends Controller
             )
         );
     }
+    private function calculateTolerance(SelectedOrder $order)
+    {
+        $pouringTime      = max(1, (int) ($order->pouring_time ?? 0));
+        $loadingTime      = max(1, (int) ($order->loading_time ?? 0));
+        $customerInterval = (int) ($order->interval ?? 0);
+        $baseInterval = $pouringTime;
+        $isCritical = $loadingTime > $baseInterval;
+        $order->base_interval = $pouringTime;
+        $order->min_interval = $order->base_interval - 5;
+        $order->is_critical   = $isCritical;
+    }
 
+    /**
+     * req_plants — the minimum number of batching plants this order needs to be
+     * delivered on time. Persisted on the order so the scheduler can size how
+     * many plants to open. Must run AFTER calculateTolerance() (needs base_interval).
+     *
+     *   • Multi-pump order (pump = true AND pump_qty > 1):
+     *       One plant can keep pouring_time/loading_time pumps fed at once, so
+     *           pumps_per_plant = floor(pouring_time / loading_time)   (min 1)
+     *           req_plants      = ceil(pump_qty / pumps_per_plant)
+     *
+     *   • Single-pump (pump_qty <= 1) or no-pump order:
+     *       Trucks leave at the pace of base_interval but one plant needs
+     *       loading_time per truck; if loading_time > base_interval we need
+     *       parallel plants:
+     *           req_plants = ceil(loading_time / base_interval)
+     *       e.g. base_interval = 5, loading_time = 8 → ceil(1.6) = 2 plants.
+     *
+     * Floored at 1.
+     */
+    private function calculateReqPlants(SelectedOrder $order)
+    {
+        $loadingTime = max(1, (int) ($order->loading_time ?? 0));
+        $isPump      = (bool) ($order->pump ?? false);
+        $pumpQty     = (int) ($order->pump_qty ?? 0);
+
+        if ($isPump && $pumpQty > 1) {
+            $pouringTime   = max(1, (int) ($order->pouring_time ?? 0));
+            $pumpsPerPlant = max(1, (int) floor($pouringTime / $loadingTime));
+            $reqPlants     = (int) ceil($pumpQty / $pumpsPerPlant);
+        } else {
+            $baseInterval = (int) ($order->base_interval ?? 0);
+            if ($baseInterval <= 0) {
+                $baseInterval = (int) ($order->interval ?? 0);
+            }
+            $reqPlants = $baseInterval > 0
+                ? (int) ceil($loadingTime / $baseInterval)
+                : 1;
+        }
+
+        $order->req_plants = max(1, $reqPlants);
+    }
+
+    /**
+     * LPI (Load Priority Index) — 0..100 score that ranks orders for scheduling.
+     * Computed once here, at order-selection time, and persisted on the order
+     * (via the caller's save()). The scheduler reads the stored lpi_score; it no
+     * longer recomputes it.
+     *
+     * Weights: V (Volume & Complexity) 50%, P (Priority & Customer) 30%,
+     *          C (Cycle Fit & Criticality) 20%.
+     * Must run AFTER calculateTolerance() — it reads is_critical.
+     */
+    private function calculateAndStoreLpi(SelectedOrder $order): void
+    {
+        $structRef = $order->structural_reference_id
+            ? StructuralReference::find($order->structural_reference_id)
+            : null;
+
+        // ── V — Volume & Complexity (50% weight) ─────────────────────────────
+        // Quantity score is CONTINUOUS, not banded: every distinct total quantity
+        // produces a distinct score (e.g. 300 and 301 no longer score the same).
+        // It rises smoothly with quantity and stays within 0..100 using
+        //   band = 100 * qty / (qty + $qtyScale)
+        // — strictly increasing, so bigger orders always score higher, and never
+        // saturating to an exact tie. $qtyScale tunes the curve: a SMALLER value
+        // makes big orders score higher faster; a LARGER value flattens it.
+        // Orders below 50 m³ remain excluded (score 0), as before.
+        $qtyValue = max(0.0, (float) ($order->quantity ?? 0));
+        $qtyScale = 100.0;
+        $vQtyBand = $qtyValue < 50
+            ? 0.0
+            : round(100.0 * ($qtyValue / ($qtyValue + $qtyScale)), 2);
+        $vQtyLabel = $qtyValue < 50
+            ? 'EXCLUDED (<50)'
+            : 'qty=' . rtrim(rtrim(number_format($qtyValue, 2, '.', ''), '0'), '.') . ' m³ → ' . $vQtyBand . ' (continuous)';
+        $vPumpBonus = $order->pump ? 10 : 0;
+        $v          = min(100, $vQtyBand + $vPumpBonus);
+        $vCapped    = ($vQtyBand + $vPumpBonus) > 100;
+
+        // ── P — Priority & Customer Importance (30% weight) ──────────────────
+        $priorityRank = (int) ($order->priority ?? 999);
+        $pPriorityBonus = match (true) {
+            $priorityRank === 1   => 80,
+            $priorityRank === 2   => 70,
+            $priorityRank === 3   => 60,
+            $priorityRank === 4   => 50,
+            $priorityRank === 5   => 40,
+            $priorityRank <= 10   => 30,
+            default               => 0,
+        };
+        $pPriorityLabel = $priorityRank > 10
+            ? "rank=" . $priorityRank . " (>10, no bonus)"
+            : "rank=" . $priorityRank;
+
+        $customerTier   = (int) ($order->customer_company->tier ?? 999);
+        $pCustomerBonus = ($customerTier <= 10) ? 20 : 0;
+        $pCustomerLabel = ($customerTier <= 10)
+            ? "TOP-{$customerTier} customer"
+            : "tier={$customerTier} (>10, no bonus)";
+
+        $pNonFlexBonus = !((int) ($order->flexibility ?? 0)) ? 20 : 0;
+        $pNonFlexLabel = $order->flexibility ? 'flexible (no bonus)' : 'NON-FLEXIBLE';
+
+        $pRaw    = $pPriorityBonus + $pCustomerBonus + $pNonFlexBonus;
+        $p       = min(100, $pRaw);
+        $pCapped = $pRaw > 100;
+
+        // ── C — Cycle Fit & Criticality (20% weight) ─────────────────────────
+        $cCriticalBonus = $order->is_critical ? 50 : 0;
+        $cCriticalLabel = $order->is_critical ? 'CRITICAL (+50)' : 'not critical';
+
+        $travelMins   = (int) ($order->travel_to_site ?? 60);
+        $cTravelBonus = max(0, (int) (((max(0, 60 - $travelMins)) / 60) * 30));
+        $cTravelLabel = "travel={$travelMins}min";
+
+        $pourTypeName = strtolower($structRef->name ?? $order->item_type ?? '');
+        $cPourBonus   = match (true) {
+            str_contains($pourTypeName, 'raft')    => 20,
+            str_contains($pourTypeName, 'slab')    => 20,
+            str_contains($pourTypeName, 'footing') => 15,
+            str_contains($pourTypeName, 'wall')    => 10,
+            str_contains($pourTypeName, 'column')  => 5,
+            default                                => 10,
+        };
+        $cPourLabel = match (true) {
+            str_contains($pourTypeName, 'raft')    => 'raft',
+            str_contains($pourTypeName, 'slab')    => 'slab',
+            str_contains($pourTypeName, 'footing') => 'footing',
+            str_contains($pourTypeName, 'wall')    => 'wall',
+            str_contains($pourTypeName, 'column')  => 'column',
+            default                                => "unknown('{$pourTypeName}')",
+        };
+
+        $cRaw    = $cCriticalBonus + $cTravelBonus + $cPourBonus;
+        $c       = min(100, $cRaw);
+        $cCapped = $cRaw > 100;
+
+        // ── Final LPI ────────────────────────────────────────────────────────
+        $vWeighted = round(0.50 * $v, 2);
+        $pWeighted = round(0.30 * $p, 2);
+        $cWeighted = round(0.20 * $c, 2);
+        $lpi       = round($vWeighted + $pWeighted + $cWeighted, 2);
+
+        // ── Detailed per-factor audit log ────────────────────────────────────
+        $breakdown  = "\n";
+        $breakdown .= "[LPI_DETAIL] ┌─ Order #{$order->order_no} (qty={$order->quantity} m³) ──────────────────\n";
+        $breakdown .= "[LPI_DETAIL] │  V  (Volume & Complexity, 50% weight)\n";
+        $breakdown .= "[LPI_DETAIL] │     • Quantity band: {$vQtyLabel} ............... +{$vQtyBand}\n";
+        $breakdown .= "[LPI_DETAIL] │     • Pump required: " . ($order->pump ? 'YES' : 'no')
+            . str_pad('', 18 - ($order->pump ? 3 : 2), '.') . " +{$vPumpBonus}\n";
+        $breakdown .= "[LPI_DETAIL] │     ─ V subtotal:   {$vQtyBand} + {$vPumpBonus} = "
+            . ($vQtyBand + $vPumpBonus) . ($vCapped ? " (CAPPED → 100)" : "") . "\n";
+        $breakdown .= "[LPI_DETAIL] │     ► V = {$v}/100\n";
+        $breakdown .= "[LPI_DETAIL] │\n";
+        $breakdown .= "[LPI_DETAIL] │  P  (Priority & Customer Importance, 30% weight)\n";
+        $breakdown .= "[LPI_DETAIL] │     • Dispatch priority: {$pPriorityLabel} ........ +{$pPriorityBonus}\n";
+        $breakdown .= "[LPI_DETAIL] │     • Customer tier: {$pCustomerLabel} ........ +{$pCustomerBonus}\n";
+        $breakdown .= "[LPI_DETAIL] │     • Schedule type: {$pNonFlexLabel} ........ +{$pNonFlexBonus}\n";
+        $breakdown .= "[LPI_DETAIL] │     ─ P subtotal:   {$pPriorityBonus} + {$pCustomerBonus} + {$pNonFlexBonus} = {$pRaw}"
+            . ($pCapped ? " (CAPPED → 100)" : "") . "\n";
+        $breakdown .= "[LPI_DETAIL] │     ► P = {$p}/100\n";
+        $breakdown .= "[LPI_DETAIL] │\n";
+        $breakdown .= "[LPI_DETAIL] │  C  (Cycle Fit & Criticality, 20% weight)\n";
+        $breakdown .= "[LPI_DETAIL] │     • is_critical flag: {$cCriticalLabel} ........ +{$cCriticalBonus}\n";
+        $breakdown .= "[LPI_DETAIL] │     • Travel distance: {$cTravelLabel} ........ +{$cTravelBonus}\n";
+        $breakdown .= "[LPI_DETAIL] │     • Pour type: {$cPourLabel} ........ +{$cPourBonus}\n";
+        $breakdown .= "[LPI_DETAIL] │     ─ C subtotal:   {$cCriticalBonus} + {$cTravelBonus} + {$cPourBonus} = {$cRaw}"
+            . ($cCapped ? " (CAPPED → 100)" : "") . "\n";
+        $breakdown .= "[LPI_DETAIL] │     ► C = {$c}/100\n";
+        $breakdown .= "[LPI_DETAIL] │\n";
+        $breakdown .= "[LPI_DETAIL] │  FINAL  LPI = (0.50 × {$v}) + (0.30 × {$p}) + (0.20 × {$c})\n";
+        $breakdown .= "[LPI_DETAIL] │             = {$vWeighted} + {$pWeighted} + {$cWeighted}\n";
+        $breakdown .= "[LPI_DETAIL] │  ╔══════════════════════════════════════════════╗\n";
+        $breakdown .= "[LPI_DETAIL] │  ║  ORDER {$order->order_no}  →  LPI = {$lpi} / 100\n";
+        $breakdown .= "[LPI_DETAIL] │  ╚══════════════════════════════════════════════╝\n";
+        $breakdown .= "[LPI_DETAIL] └─────────────────────────────────────────────────────";
+        Log::info($breakdown);
+        
+            
+        
+        Log::build([
+            'driver' => 'single',
+            'path'   => storage_path('logs/scheduling.log'),
+        ])->info($breakdown);
+
+        // Compact one-liner kept for grep/filter compatibility with old tools
+        // Log::info("[LPI] Order {$order->order_no} "
+        //     . "qty={$order->quantity} "
+        //     . "pump=" . ($order->pump ? 'yes' : 'no') . " "
+        //     . "priority={$priorityRank} "
+        //     . "tier={$customerTier} "
+        //     . "flexible=" . ($order->flexibility ? 'yes' : 'no') . " "
+        //     . "critical=" . ($order->is_critical ? 'yes' : 'no') . " "
+        //     . "travel={$travelMins}min "
+        //     . "pour_type={$pourTypeName} "
+        //     . "V={$v}({$vQtyBand}+{$vPumpBonus}) "
+        //     . "P={$p}({$pPriorityBonus}+{$pCustomerBonus}+{$pNonFlexBonus}) "
+        //     . "C={$c}({$cCriticalBonus}+{$cTravelBonus}+{$cPourBonus}) "
+        //     . "LPI={$lpi}");
+
+        // Persisted by the caller's $order->save().
+        $order->lpi_score = $lpi;
+        
+    }
+
+    private function getMaximumAcceptableDelay(SelectedOrder $order)
+    {
+        $expectedDuration = self::calculateExpectedDuration($order);
+        // Set expected_duration first — setMaxDelay needs it for non-flexible (25% rule)
+        $order->expected_duration = $expectedDuration;
+        $order->max_delay         = $this->setMaxDelay($order);
+    }
+    private function calculateExpectedDuration($order): int
+    {
+        $batchSize   = 8;
+        $quantity    = (float) ($order->quantity ?? 0);
+        $pouringTime = max(1, (int) ($order->pouring_time ?? 0));
+        $interval    = (int) ($order->base_interval ?? 0);
+        $hasPump     = (bool) $order->pump;
+        $numTrips    = max(1, (int) ceil($quantity / $batchSize));
+
+        // Last trip may be a partial batch → scaled pouring time
+        $lastTripQty     = $quantity - ($batchSize * ($numTrips - 1));
+        $lastPouringTime = ($lastTripQty < $batchSize)
+            ? max(1, (int) round(($pouringTime / $batchSize) * $lastTripQty + 1))
+            : $pouringTime;
+
+        if ($numTrips <= 1) {
+            return $pouringTime;
+        }
+
+        // Non-pump: interval-based gap between trip pouring starts
+        return (($numTrips - 1) * $interval) + $lastPouringTime;
+    }
+    private function setMaxDelay(SelectedOrder $order)
+    {
+        $isFlexible = (bool) $order->flexibility;
+
+        if ($isFlexible) {
+            // ── Client feedback (3.3-3.9): ────────────────────────────────
+            // "Small order should not go beyond the 45 minute gap"
+            // Applies to ALL flexible orders — the interval gap cap is 45 min
+            $expectedDuration = (int) ($order->expected_duration ?? 0);
+            $maxDelayMins = max(1, (int) ceil($expectedDuration / 3));
+            $maxDelayMins = max($maxDelayMins, 60);
+        } else {
+            // ── Client feedback (3.2): ────────────────────────────────────
+            // "Not to go less than 75% of big order productivity"
+            // 75% productivity = 25% delay allowed of expected_duration
+            $expectedDuration = (int) ($order->expected_duration ?? 0);
+            $maxDelayMins = max(1, (int) ceil($expectedDuration / 3));
+            $maxDelayMins = 60;
+        }
+
+        return $maxDelayMins;
+    }
+
+    public function exportSchedule(Request $request)
+    {
+        $request->validate([
+            'company_id'    => 'required|integer',
+            'schedule_date' => 'required|date',
+        ]);
+
+        $filename = 'Schedule_' . $request->schedule_date . '_Company_' . $request->company_id . '.xlsx';
+
+        return Excel::download(
+            new ScheduleExport([
+                'company_id'    => $request->company_id,
+                'schedule_date' => $request->schedule_date,
+                'user_id'       => auth()->id(),
+            ]),
+            $filename
+        );
+    }
+    public function scheduleOverviewRow(Request $request)
+    {
+        $request->validate([
+            'company_id'    => 'required|integer',
+            'schedule_date' => 'required|date',
+        ]);
+
+        $userId = auth()->user()->id;
+
+        $row = SelectedOrder::where('group_company_id', $request->company_id)
+            ->whereDate('delivery_date', $request->schedule_date)
+            ->where('selected', true)
+            ->whereIn('schedule_status', ['processing', 'completed', 'failed'])
+            ->select(
+                DB::raw('DATE(delivery_date) as delivery_date'),
+                DB::raw('SUM(quantity) as total_quantity'),
+                DB::raw('COUNT(*) as total_orders'),
+                DB::raw("GROUP_CONCAT(DISTINCT order_no ORDER BY order_no SEPARATOR ', ') as order_nos"),
+                DB::raw('MAX(schedule_status) as schedule_status')
+            )
+            ->groupByRaw('DATE(delivery_date)')
+            ->first();
+
+        $usedPlants = SelectedOrderSchedule::where('group_company_id', $request->company_id)
+            ->where('user_id', $userId)
+            ->whereDate('schedule_date', $request->schedule_date)
+            ->distinct()->pluck('batching_plant')->filter()->implode(', ');
+
+        $pumpGroups = SelectedOrderPumpSchedule::join('pumps', 'pumps.pump_name', '=', 'selected_order_pump_schedules.pump')
+            ->where('selected_order_pump_schedules.group_company_id', $request->company_id)
+            ->where('selected_order_pump_schedules.user_id', $userId)
+            ->whereDate('selected_order_pump_schedules.schedule_date', $request->schedule_date)
+            ->select(
+                'pumps.type',
+                'pumps.pump_capacity',
+                DB::raw('COUNT(DISTINCT selected_order_pump_schedules.pump) as pump_count')
+            )
+            ->groupBy('pumps.type', 'pumps.pump_capacity')
+            ->get();
+
+        $usedPumps = $pumpGroups->map(function ($p) {
+            $label = trim(($p->type ?? '') . ' ' . ($p->pump_capacity ?? ''));
+            return ($label !== '' ? $label : 'Pump') . ' ×' . $p->pump_count;
+        })->implode(', ');
+
+        return response()->json([
+            'delivery_date'   => $row->delivery_date ?? $request->schedule_date,
+            'total_quantity'  => $row->total_quantity ?? 0,
+            'total_orders'    => $row->total_orders ?? 0,
+            'order_nos'       => $row->order_nos ?? '',
+            'used_plants'     => $usedPlants,
+            'used_pumps'      => $usedPumps,
+            'schedule_status' => $row->schedule_status ?? 'none',
+        ]);
+    }
+    function ensureQueueWorkerRunning()
+    {
+        $check = shell_exec('wmic process where "CommandLine like \'%queue:work%\'" get ProcessId /FORMAT:LIST 2>NUL');
+        $isRunning = $check && stripos($check, 'ProcessId') !== false;
+
+        if (!$isRunning) {
+            $artisan = base_path('artisan');
+            $log = storage_path('logs/queue-worker.log');
+            $cmd = 'start /B php "' . $artisan . '" queue:work --tries=3 >> "' . $log . '" 2>&1';
+            pclose(popen($cmd, 'r'));
+        }
+    }
 }

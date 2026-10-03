@@ -19,7 +19,7 @@
 								<img src="{{asset('assets/img/home.svg')}}" alt="">
 								<div class = "sidebar-label">Home</div>
 							</a></li>
-						<li class="nav-item"><a href="{{route('web.order.live.schedule')}}" class="nav-link {{ Request::is('live-schedule') ? 'active' : '' }}">
+						<li class="nav-item"><a href="{{route('orders.schedules.overview')}}" class="nav-link {{ Request::is('orders-schedules-overview') ? 'active' : '' }}">
 								<img src="{{asset('assets/img/order.svg')}}" alt="">
 								<div class = "sidebar-label">Schedule</div>
 							</a></li>

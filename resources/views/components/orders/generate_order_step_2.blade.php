@@ -143,7 +143,7 @@
 															onchange="onChangeEvent(this.value, 'time-order-', {{$order -> id}}, 'time');" />
 													</td>
 													<td>
-														<input name="orders[{{$orderKey}}][interval]"
+														<input name="orders[{{$orderKey}}][interval]" 
 															style="width: 50px; text-align: right;" type="number"
 															value="{{$order -> interval}}" data-arraykey="{{$orderKey}}"
 															id="interval-order-{{$order -> id}}"
@@ -206,7 +206,28 @@
 													<td class="gray-text">{{$order -> is_techinician_required ? 'Yes' : 'No'}}</td>
 													<td>{{$order -> order_cube_mould_display()}}</td>
 													<td>{{$order -> order_temp_control_display()}}</td>
-													<td>{{$order -> order_pumps_display()}}</td>
+													<td>
+														@php
+															$pumpRows = $order->order_pumps;
+															$pumpRowCount = is_countable($pumpRows) ? count($pumpRows) : 0;
+														@endphp
+														@if ($order->pump && $pumpRowCount === 1)
+															@php $op = $pumpRows->first(); @endphp
+															<div class="d-flex align-items-center"
+																style="gap:6px; white-space:nowrap;">
+																<span>{{ $op->type }} - {{ $op->pump_size }} X</span>
+																<input name="orders[{{$orderKey}}][pump_qty]"
+																	type="number" min="1"
+																	style="width: 55px; text-align: right;"
+																	value="{{ (int)($op->qty ?? $order->pump_qty) }}"
+																	id="pump_qty-order-{{$order -> id}}"
+																	data-arraykey="{{$orderKey}}"
+																	onchange="onChangeEvent(this.value, 'pump_qty-order-', {{$order -> id}}, 'pump_qty');" />
+															</div>
+														@else
+															{{$order -> order_pumps_display()}}
+														@endif
+													</td>
 												</tr>
 												@empty
 												<tr>
@@ -300,6 +321,7 @@
 				selected: element.selected,
 				priority: element.priority == 9999 ? null : element.priority,
 				interval: element.interval,
+				loading_time : element.loading_time,
 				travel_to_site: element.travel_to_site,
 				return_to_plant: element.return_to_plant,
 				time: moment(element.delivery_date).format("HH:mm")
@@ -387,6 +409,9 @@
 		// Get form action and add custom JSON data
 		var form = document.getElementById('updateOrderForm');
 		// Submit the form
+		if (!form.reportValidity()) {
+        return; // stop if invalid
+    }
 
 		form.submit();
 	}
