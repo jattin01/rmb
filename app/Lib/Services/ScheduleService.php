@@ -406,8 +406,14 @@ class ScheduleService
                 'pump_busy_slots_unset'     => [],
             ]);
 
-            // LPI (lpi_score) is computed and persisted at order-selection time
-            // by OrderController; the scheduler reads the stored value below.
+            // LPI v2: rank every order (Main / Survival Battle) before scheduling.
+            // fetchOrders() and every priority decision below follow lpi_sequence.
+            (new LpiRankingService())->rankAndStore(
+                $scheduleData->company,
+                $scheduleData->user_id,
+                $scheduleData->shift_start,
+                $scheduleData->shift_end
+            );
 
             // ── Phase 1: read max req_plants across orders ───────────────────
             // req_plants is persisted at order-selection time by OrderController;
@@ -529,6 +535,14 @@ class ScheduleService
                 'standby_pump' => 0,
             ]);
     }
+    /**
+     * Position in the LPI v2 sequence (1 = first). Unranked orders go last.
+     */
+    private function lpiSequence($order): int
+    {
+        return (int) ($order->lpi_sequence ?? PHP_INT_MAX);
+    }
+
     public function generateSchedule(ScheduleData &$scheduleData)
     {
         try {
@@ -542,8 +556,8 @@ class ScheduleService
                 return;
             }
 
-            // Highest LPI first — these get admitted (and protected) before lower ones.
-            $allOrders = $allOrders->sortByDesc('lpi_score')->values();
+            // First in the LPI sequence first — these get admitted (and protected) before later ones.
+            $allOrders = $allOrders->sortBy(fn($o) => $this->lpiSequence($o))->values();
 
             // Snapshot clean pools ONCE. bps_availability here is the consolidated
             // (single-plant) set for small runs, or the full fleet otherwise.
@@ -1106,8 +1120,8 @@ class ScheduleService
                 return ($a['trip'] ?? PHP_INT_MAX) <=> ($b['trip'] ?? PHP_INT_MAX);
             }
 
-            // 3. Sort by LPI score (higher first)
-            return ($b['order_lpi_score'] ?? 0) <=> ($a['order_lpi_score'] ?? 0);
+            // 3. Sort by LPI sequence (first in sequence first)
+            return ($a['order_lpi_sequence'] ?? PHP_INT_MAX) <=> ($b['order_lpi_sequence'] ?? PHP_INT_MAX);
         });
         return $trips;
     }
@@ -1347,8 +1361,8 @@ class ScheduleService
                 return ($a['trip'] ?? PHP_INT_MAX) <=> ($b['trip'] ?? PHP_INT_MAX);
             }
 
-            // 3. Sort by LPI score (higher first)
-            return ($b['order_lpi_score'] ?? 0) <=> ($a['order_lpi_score'] ?? 0);
+            // 3. Sort by LPI sequence (first in sequence first)
+            return ($a['order_lpi_sequence'] ?? PHP_INT_MAX) <=> ($b['order_lpi_sequence'] ?? PHP_INT_MAX);
         });
         return $allTrips;
     }
@@ -1518,6 +1532,7 @@ class ScheduleService
                 'order_id'       => $order->id,
                 'order_no'       => $order->order_no,
                 'order_lpi_score' => $order->lpi_score,
+                'order_lpi_sequence' => $this->lpiSequence($order),
                 'order_priority' => $order->priority,
                 'order_pump'     => (bool) $order->pump,
                 'trip'           => $trip,
@@ -1628,8 +1643,8 @@ class ScheduleService
             //     return ($a['trip'] ?? PHP_INT_MAX) <=> ($b['trip'] ?? PHP_INT_MAX);
             // }
 
-            // 3. Sort by LPI score (higher first)
-            return ($b['order_lpi_score'] ?? 0) <=> ($a['order_lpi_score'] ?? 0);
+            // 3. Sort by LPI sequence (first in sequence first)
+            return ($a['order_lpi_sequence'] ?? PHP_INT_MAX) <=> ($b['order_lpi_sequence'] ?? PHP_INT_MAX);
         });
 
         return $allTrips;
@@ -2240,11 +2255,11 @@ class ScheduleService
 
         // ── Standby pump pass (LPI priority) ──────────────────────────────
         // All active pumps are now placed and stored. Reserve standby pumps for
-        // standby-required orders, HIGHEST-LPI FIRST, so the most important
-        // orders claim the remaining free pumps before lower-LPI ones do.
+        // standby-required orders in LPI SEQUENCE ORDER, so the most important
+        // orders claim the remaining free pumps before later ones do.
         if (!$scheduleData->trial_mode && !empty($standbyCandidates)) {
             uasort($standbyCandidates, function ($a, $b) {
-                return ((float) ($b->lpi_score ?? 0)) <=> ((float) ($a->lpi_score ?? 0));
+                return $this->lpiSequence($a) <=> $this->lpiSequence($b);
             });
             foreach ($standbyCandidates as $standbyOrder) {
                 $this->assignStandbyPump($standbyOrder, $scheduleData);
@@ -2497,6 +2512,7 @@ class ScheduleService
             "structural_reference_id",
             "customer_id",
             "lpi_score",
+            "lpi_sequence",
             "is_critical",
             "req_plants",
             "used_pump",
@@ -2509,8 +2525,8 @@ class ScheduleService
             ->whereBetween("delivery_date", [$scheduleData->shift_start, $scheduleData->shift_end])
             ->whereNull("start_time")
             ->where("selected", true)
-            ->orderBy('priority', 'ASC')
-            ->orderBy('lpi_score', 'DESC')
+            ->orderByRaw('lpi_sequence IS NULL')
+            ->orderBy('lpi_sequence', 'ASC')
             ->get();
     }
     private function adjustLocations($order, $batchingPlantAvailability)
@@ -3567,7 +3583,7 @@ class ScheduleService
     {
         $orders = $this->fetchOrders($scheduleData);
         $this->getLocations($orders, $scheduleData);
-        return $orders->sortByDesc('lpi_score')->values();
+        return $orders->sortBy(fn($o) => $this->lpiSequence($o))->values();
     }
 
     /**
@@ -3683,6 +3699,7 @@ class ScheduleService
             $pumpOrders[] = [
                 'order_no'     => $orderNo,
                 'lpi'          => (float) ($order->lpi_score ?? 0),
+                'seq'          => $this->lpiSequence($order),
                 'start'        => $start,
                 'end'          => $end->copy()->addMinutes($slipBuffer),
                 'requirements' => $requirements,
@@ -3696,12 +3713,11 @@ class ScheduleService
             return [];
         }
 
-        // Highest LPI claims pumps first; ties keep their natural ordering.
-        // Highest LPI claims pumps first; on an LPI tie the order whose first
+        // First in the LPI sequence claims pumps first; on a tie the order whose first
         // trip loads earliest claims the pump.
         usort($pumpOrders, function ($a, $b) {
-            if ($a['lpi'] !== $b['lpi']) {
-                return $b['lpi'] <=> $a['lpi'];          // higher LPI first
+            if ($a['seq'] !== $b['seq']) {
+                return $a['seq'] <=> $b['seq'];          // earlier in LPI sequence first
             }
             return $a['start']->timestamp <=> $b['start']->timestamp;  // earlier loading first
         });
@@ -4265,9 +4281,9 @@ class ScheduleService
         $totalPlants = count($plantNames);
         $sorted = $feasibleOrders->sortBy(function ($o) {
             $pumpBoost = ($o->pump ?? false) ? 0 : 1;
-            $lpiInv    = 100000 - (float) ($o->lpi_score ?? 0);
+            $lpiSeq    = min($this->lpiSequence($o), 9999999999);
             $qtyInv    = 100000 - (int) ($o->quantity ?? 0);
-            return sprintf('%d-%010.2f-%010d', $pumpBoost, $lpiInv, $qtyInv);
+            return sprintf('%d-%010d-%010d', $pumpBoost, $lpiSeq, $qtyInv);
         })->values();
         $plantBuckets = [];
         $accepted = collect();

@@ -487,6 +487,9 @@ class OrderController extends Controller
                 unset($order['customer_confirmed_on']);
                 unset($order['has_customer_confirmed']);
                 unset($order['remarks']);
+                // LPI v2 (doc section 3): every order starts flexible; the
+                // dispatcher marks non-flexible orders in step 2.
+                $order['flexibility'] = 1;
             }
 
             if ($published_flag) {
@@ -814,8 +817,8 @@ class OrderController extends Controller
                 // -> where("selected", true) -> orderByRaw('start_time IS NULL, start_time ASC') -> get();
                 ->where("selected", true)
                 ->orderBy('start_time', 'ASC')
-                ->orderBy('priority', 'ASC')
-                ->orderBy('quantity', 'DESC')
+                ->orderByRaw('lpi_sequence IS NULL')
+                ->orderBy('lpi_sequence', 'ASC')
                 ->get();
 
             //Batching Plant

@@ -240,7 +240,23 @@
                                                             </div>
                                                         </div>
 
-                                                        <span class="plant-texttable">LPI {{ $res['lpi_score'] }} <br>{{ $res['location'] }}</span>
+                                                        @php
+                                                            $lpiSeq = $res['lpi_sequence'] ?? null;
+                                                            $lpiTitle = $lpiSeq
+                                                                ? 'Start position ' . ($res['lpi_initial_position'] ?? '-')
+                                                                    . ' · V ' . ($res['lpi_v'] ?? 0)
+                                                                    . ' + P ' . ($res['lpi_p'] ?? 0)
+                                                                    . ' + C ' . ($res['lpi_c'] ?? 0)
+                                                                    . ' (speed ' . ($res['lpi_speed'] ?? '-') . ')'
+                                                                    . (!empty($res['lpi_reason']) ? ' · ' . ucfirst($res['lpi_reason']) : '')
+                                                                : '';
+                                                        @endphp
+                                                        <span class="plant-texttable" title="{{ $lpiTitle }}">
+                                                            @if ($lpiSeq)
+                                                                #{{ $lpiSeq }} {{ ($res['lpi_zone'] ?? '') === 'main' ? 'Main' : 'Survival' }}{{ !empty($res['lpi_promoted']) ? ' ↑' : '' }} ·
+                                                            @endif
+                                                            LPI {{ $res['lpi_score'] ?? '-' }}
+                                                            <br>{{ $res['location'] }}</span>
 
                                                         @php
                                                             $fullyDelivered = (int) ($res['delivered_quantity'] ?? 0) >= (int) (floor($res['quantity']) ?? 0);
