@@ -64,6 +64,20 @@ class LpiRankingService
     public const P_NON_FLEXIBLE = 15;
     public const C_WEIGHT       = 20;
 
+    private static $logger = null;
+
+    /** Same file as ScheduleService, so the /logs page shows the LPI breakdown. */
+    private static function log()
+    {
+        if (self::$logger === null) {
+            self::$logger = Log::build([
+                'driver' => 'single',
+                'path'   => storage_path('logs/scheduling.log'),
+            ]);
+        }
+        return self::$logger;
+    }
+
     /**
      * Rank every selected order of the shift and persist the result.
      * Runs before every Generate, after the dispatcher has marked
@@ -317,7 +331,7 @@ class LpiRankingService
                 'lpi_score'            => null,
             ]);
         } catch (\Throwable $e) {
-            Log::warning('[LPI] Could not clear LPI ranking — run migrations first. ' . $e->getMessage());
+            self::log()->warning('[LPI] Could not clear LPI ranking — run migrations first. ' . $e->getMessage());
         }
     }
 
@@ -340,7 +354,7 @@ class LpiRankingService
                         'lpi_score'            => $case['lpi'],
                     ]);
             } catch (\Throwable $e) {
-                Log::warning("[LPI] Could not save LPI ranking for order_id={$case['id']} — run migrations first. " . $e->getMessage());
+                self::log()->warning("[LPI] Could not save LPI ranking for order_id={$case['id']} — run migrations first. " . $e->getMessage());
             }
         }
     }
@@ -352,7 +366,7 @@ class LpiRankingService
     private function logAudit(array $ranked): void
     {
         foreach ($ranked as $case) {
-            Log::info(sprintf(
+            self::log()->info(sprintf(
                 '[LPI] #%d %s zone=%s start_pos=%d qty=%s top10=%s non_flexible=%s speed=%s distance=%dmin '
                     . 'V=%s P=%s C=%s LPI=%s%s',
                 $case['sequence'],
