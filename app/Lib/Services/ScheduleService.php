@@ -734,6 +734,26 @@ class ScheduleService
                     $this->restartAfterPlantExpansion($scheduleData, $allOrders, $allTrips, $candidate, $committed, '(opened at +0 min)');
                 continue;
             }
+
+            // Plant with the earliest start / lowest delay (tries other plants
+            // only when the predicted one is late or does not fit).
+            $pick = $this->pickBestPlantAtNoDelay(
+                $scheduleData,
+                $pristine,
+                $allTrips,
+                $testOrders,
+                $testOrderNos,
+                $candidate,
+                $committedDelays,
+                $committedTimes,
+                $res
+            );
+            $res = $pick['res'];
+            if ($res['expanded']) {
+                [$allOrders, $allTrips, $candidatesList, $candidateIdx, $committed, $rejected, $committedDelays, $committedTimes] =
+                    $this->restartAfterPlantExpansion($scheduleData, $allOrders, $allTrips, $candidate, $committed, '(opened while comparing plants)');
+                continue;
+            }
             $scope = "on the available plant(s)";
 
             if ($res['candidateRejected']) {
@@ -747,182 +767,105 @@ class ScheduleService
             if (empty($res['partials'])) {
                 $committed = $testOrders;
                 $committedTimes = $res['times'];
-                $this->pinCommittedPlants($committed, $this->passPlantChoice);
+                $this->pinCommittedPlants($committed, $pick['plantChoice']);
                 self::schedLog()->info("[INCR_SCHED] ✓ {$candidate->order_no} accepted "
                     . "(committed now " . $committed->count() . " order(s))");
                 $candidateIdx++;
                 continue;
             }
 
-            // ── Predict a working delay: geometric probe, then binary refine.
+            // ── Predict a working delay: geometric probe, then binary refine —
+            // once per plant for single-plant orders, keeping the plant with the
+            // smallest delay (earliest free). Other orders: one search as before.
             self::schedLog()->info("[INCR_DELAY] candidate {$candidate->order_no} caused "
                 . count($res['partials']) . " partial order(s) {$scope} at +0 min — "
                 . "predicting a working delay (search up to +{$maxDelay} min).");
 
-            $probes     = 0;
-            $lastFail   = 0;
-            $okDelay    = null;
-            $rejectedAt = null;
-            $expanded   = false;
-            // Plant choices from the last CLEAN pass — the refine loop may end
-            // on a dirty pass, so snapshot at each clean point rather than
-            // trusting whatever the final pass happened to leave behind.
-            $cleanPlantChoice = [];
-            $cleanTimes = [];
-            $pushReasonSeen = !empty($res['pushed']) ? $res['pushed'][0]['reason'] : null;
-            $step       = max(1, self::INCR_DELAY_PROBE_BASE_MINS);
-            $delay      = $step;
-            // Remember the candidate's OWN recorded reason (e.g. a pump
-            // message) from the trial passes, so a final reject reports the
-            // real cause instead of the generic "all plants at full capacity".
-            $candidateReasonSeen = $this->candidatePartialReason($res['partials'], $candidate);
-
-            // PROBE
-            while ($delay <= $maxDelay && $probes < self::INCR_DELAY_MAX_PROBES) {
-                $probes++;
-                $this->reportStatus($scheduleData, 'scheduling', $candidatesList, $committed, $rejected, $candidate, $delay);
-                $r = $this->scheduleCandidateAtDelay(
-                    $scheduleData,
-                    $pristine,
-                    $allTrips,
-                    $testOrders,
-                    $testOrderNos,
-                    $candidate,
-                    $committedDelays,
-                    $delay,
-                    $committedTimes
-                );
-                if ($r['expanded']) {
-                    $expanded = true;
-                    break;
-                }
-                if ($r['candidateRejected']) {
-                    self::schedLog()->info("[INCR_DELAY] probe +{$delay} min → candidate hard-rejected; "
-                        . "further delay cannot help. Stopping probe.");
-                    $rejectedAt = $r;
-                    break;
-                }
-                if (empty($r['partials'])) {
-                    $okDelay = $delay;
-                    $cleanPlantChoice = $this->passPlantChoice;
-                    $cleanTimes = $r['times'];
-                    self::schedLog()->info("[INCR_DELAY] probe +{$delay} min → clean (0 partials); "
-                        . "bracketed a working delay, refining toward the minimum.");
-                    break;
-                }
-                self::schedLog()->info("[INCR_DELAY] probe +{$delay} min → still "
-                    . count($r['partials']) . " partial(s); growing step.");
-                $seenReason = $this->candidatePartialReason($r['partials'], $candidate);
-                if (!empty($r['pushed'])) { $pushReasonSeen = $r['pushed'][0]['reason']; }
-                if ($seenReason !== null) { $candidateReasonSeen = $seenReason; }
-                $lastFail = $delay;
-                $delay   += $step;
-                $step    *= 2;
+            $predictedPlant = $pick['plantChoice'][$candidate->order_no] ?? null;
+            $plantsToTry = [null];
+            if ($predictedPlant !== null) {
+                $open = array_values(array_unique(array_column($scheduleData->bps_availability ?? [], 'plant_name')));
+                $plantsToTry = array_values(array_unique(array_merge([$predictedPlant], $open)));
             }
-            if ($expanded) {
+
+            $search = null;      // best outcome so far
+            $searchPlant = null;
+            $perPlant = [];
+            $expandedWhen = null;
+            foreach ($plantsToTry as $plant) {
+                $limit = $maxDelay;
+                if ($search !== null && $search['okDelay'] !== null) {
+                    // Only a smaller delay (or the same delay with less extra pour) can win.
+                    $limit = $search['best'];
+                }
+                if ($plant !== null) {
+                    $this->pinnedPlant[$candidate->order_no] = $plant;
+                }
+                $out = $this->searchCandidateDelay(
+                    $scheduleData, $pristine, $allTrips, $testOrders, $testOrderNos, $candidate,
+                    $committedDelays, $committedTimes, $limit, $res, $candidatesList, $committed, $rejected
+                );
+                unset($this->pinnedPlant[$candidate->order_no]);
+
+                if ($out['expanded']) {
+                    $expandedWhen = $out['expandWhen'];
+                    break;
+                }
+                $perPlant[] = ($plant ?? 'predicted') . ': '
+                    . ($out['okDelay'] !== null
+                        ? "+{$out['best']} min (extra pour " . (int) ($out['cleanTimes'][(string) $candidate->order_no]['stretch'] ?? 0) . " min)"
+                        : ($out['rejectedAt'] !== null ? 'rejected' : 'no delay works'));
+
+                $stretchOf = fn($o) => (int) ($o['cleanTimes'][(string) $candidate->order_no]['stretch'] ?? 0);
+                if ($search === null
+                    || ($out['okDelay'] !== null && ($search['okDelay'] === null
+                        || [$out['best'], $stretchOf($out)] < [$search['best'], $stretchOf($search)]))) {
+                    // Keep the better outcome; never replace a working delay with a failing one.
+                    if ($search === null || $out['okDelay'] !== null) {
+                        $search = $out;
+                        $searchPlant = $plant;
+                    }
+                }
+                // Keep the most informative reject reasons across plants.
+                $search['candidateReasonSeen'] = $search['candidateReasonSeen'] ?? $out['candidateReasonSeen'];
+                $search['pushReasonSeen']      = $search['pushReasonSeen'] ?? $out['pushReasonSeen'];
+            }
+            if ($expandedWhen !== null) {
                 [$allOrders, $allTrips, $candidatesList, $candidateIdx, $committed, $rejected, $committedDelays, $committedTimes] =
-                    $this->restartAfterPlantExpansion($scheduleData, $allOrders, $allTrips, $candidate, $committed, '(opened mid probe)');
+                    $this->restartAfterPlantExpansion($scheduleData, $allOrders, $allTrips, $candidate, $committed, $expandedWhen);
                 continue;
             }
-
-            // Geometric growth may have jumped past the cap without testing it.
-            if (
-                $okDelay === null && $rejectedAt === null
-                && $lastFail < $maxDelay && $probes < self::INCR_DELAY_MAX_PROBES
-            ) {
-                $probes++;
-                $r = $this->scheduleCandidateAtDelay(
-                    $scheduleData,
-                    $pristine,
-                    $allTrips,
-                    $testOrders,
-                    $testOrderNos,
-                    $candidate,
-                    $committedDelays,
-                    $maxDelay,
-                    $committedTimes
-                );
-                if ($r['expanded']) {
-                    $expanded = true;
-                } elseif ($r['candidateRejected']) {
-                    $rejectedAt = $r;
-                } elseif (empty($r['partials'])) {
-                    $okDelay = $maxDelay;
-                    $cleanPlantChoice = $this->passPlantChoice;
-                    $cleanTimes = $r['times'];
-                    self::schedLog()->info("[INCR_DELAY] probe +{$maxDelay} min (cap) → clean (0 partials).");
-                } else {
-                    $lastFail = $maxDelay;
-                    $seenReason = $this->candidatePartialReason($r['partials'], $candidate);
-                    if (!empty($r['pushed'])) { $pushReasonSeen = $r['pushed'][0]['reason']; }
-                    if ($seenReason !== null) { $candidateReasonSeen = $seenReason; }
-                }
-            }
-            if ($expanded) {
-                [$allOrders, $allTrips, $candidatesList, $candidateIdx, $committed, $rejected, $committedDelays, $committedTimes] =
-                    $this->restartAfterPlantExpansion($scheduleData, $allOrders, $allTrips, $candidate, $committed, '(opened at cap probe)');
-                continue;
+            if (count($plantsToTry) > 1) {
+                self::schedLog()->info("[PLANT_PICK] {$candidate->order_no} (LPI #" . $this->lpiSequence($candidate)
+                    . ") delay per plant: " . implode(', ', $perPlant)
+                    . ($search['okDelay'] !== null ? " → using {$searchPlant}" : ""));
             }
 
-            if ($rejectedAt !== null) {
-                $rejected[$candidate->id] = $rejectedAt['candidateReason']
+            $probes = $search['probes'];
+            $refine = $search['refine'];
+            if ($search['okDelay'] === null && $search['rejectedAt'] !== null) {
+                $rejected[$candidate->id] = $search['rejectedAt']['candidateReason']
                     ?? "This order could not be scheduled because all available plants are at full capacity.";
                 self::schedLog()->info("[INCR_SCHED] ✗ {$candidate->order_no} rejected — appeared in rejectedOrders "
                     . "while probing delays ({$probes} probe(s)); committed set unchanged");
                 $candidateIdx++;
                 continue;
             }
-            if ($okDelay === null) {
+            if ($search['okDelay'] === null) {
                 // Never committed — drop any expansion pin so it cannot leak.
                 unset($this->pinnedPlant[$candidate->order_no]);
-                $rejected[$candidate->id] = $candidateReasonSeen
-                    ?: ($pushReasonSeen !== null
-                        ? "This order could not be scheduled without delaying a higher-LPI order. {$pushReasonSeen}."
+                $rejected[$candidate->id] = $search['candidateReasonSeen']
+                    ?: ($search['pushReasonSeen'] !== null
+                        ? "This order could not be scheduled without delaying a higher-LPI order. {$search['pushReasonSeen']}."
                         : "This order could not be scheduled because all available plants are at full capacity.");
                 self::schedLog()->info("[INCR_SCHED] ✗ {$candidate->order_no} rejected — no delay up to "
                     . "+{$maxDelay} min cleared the partials ({$probes} probe(s)); committed set unchanged");
                 $candidateIdx++;
                 continue;
             }
-            // REFINE
-            $lo     = $lastFail;
-            $hi     = $okDelay;
-            $best   = $okDelay;
-            $refine = 0;
-            while (($hi - $lo) > 1 && $refine < self::INCR_DELAY_MAX_REFINE) {
-                $refine++;
-                $mid = intdiv($lo + $hi, 2);
-                $r = $this->scheduleCandidateAtDelay(
-                    $scheduleData,
-                    $pristine,
-                    $allTrips,
-                    $testOrders,
-                    $testOrderNos,
-                    $candidate,
-                    $committedDelays,
-                    $mid,
-                    $committedTimes
-                );
-                if ($r['expanded']) {
-                    $expanded = true;
-                    break;
-                }
-                if (!$r['candidateRejected'] && empty($r['partials'])) {
-                    $best = $mid;
-                    $hi   = $mid;
-                    $cleanPlantChoice = $this->passPlantChoice;
-                    $cleanTimes = $r['times'];
-                    self::schedLog()->info("[INCR_DELAY] refine +{$mid} min → clean; trying smaller.");
-                } else {
-                    $lo = $mid;
-                    self::schedLog()->info("[INCR_DELAY] refine +{$mid} min → not clean; trying larger.");
-                }
-            }
-            if ($expanded) {
-                [$allOrders, $allTrips, $candidatesList, $candidateIdx, $committed, $rejected, $committedDelays, $committedTimes] =
-                    $this->restartAfterPlantExpansion($scheduleData, $allOrders, $allTrips, $candidate, $committed, '(opened mid refine)');
-                continue;
-            }
+            $best             = $search['best'];
+            $cleanTimes       = $search['cleanTimes'];
+            $cleanPlantChoice = $search['cleanPlantChoice'];
 
             $committed = $testOrders;
             $committedTimes = $cleanTimes;
@@ -973,6 +916,237 @@ class ScheduleService
         }
 
         return ['committed' => $committed, 'rejected' => $rejected];
+    }
+
+    /**
+     * Delay search for one candidate (on whatever plant is pinned for it, if
+     * any): geometric probe up to $maxDelay, then binary refine toward the
+     * smallest clean delay. Same steps as before; it only reports the outcome
+     * so runIncrementalSchedule() can compare plants.
+     *
+     * @return array{expanded:bool, expandWhen:?string, rejectedAt:?array, okDelay:?int, best:?int,
+     *               cleanPlantChoice:array, cleanTimes:array, probes:int, refine:int,
+     *               candidateReasonSeen:?string, pushReasonSeen:?string}
+     */
+    private function searchCandidateDelay(
+        ScheduleData &$scheduleData,
+        array &$pristine,
+        array $allTrips,
+        $testOrders,
+        array $testOrderNos,
+        $candidate,
+        array $committedDelays,
+        array $committedTimes,
+        int $maxDelay,
+        array $res,
+        $candidatesList,
+        $committed,
+        array $rejected
+    ): array {
+        $out = [
+            'expanded' => false, 'expandWhen' => null, 'rejectedAt' => null, 'okDelay' => null, 'best' => null,
+            'cleanPlantChoice' => [], 'cleanTimes' => [], 'probes' => 0, 'refine' => 0,
+            'candidateReasonSeen' => $this->candidatePartialReason($res['partials'], $candidate),
+            'pushReasonSeen' => !empty($res['pushed']) ? $res['pushed'][0]['reason'] : null,
+        ];
+        $run = function (int $delay) use (&$scheduleData, &$pristine, $allTrips, $testOrders, $testOrderNos, $candidate, $committedDelays, $committedTimes) {
+            return $this->scheduleCandidateAtDelay(
+                $scheduleData, $pristine, $allTrips, $testOrders, $testOrderNos,
+                $candidate, $committedDelays, $delay, $committedTimes
+            );
+        };
+        $noteFailure = function (array $r) use (&$out, $candidate) {
+            $seen = $this->candidatePartialReason($r['partials'], $candidate);
+            if (!empty($r['pushed'])) { $out['pushReasonSeen'] = $r['pushed'][0]['reason']; }
+            if ($seen !== null) { $out['candidateReasonSeen'] = $seen; }
+        };
+
+        $lastFail = 0;
+        $step     = max(1, self::INCR_DELAY_PROBE_BASE_MINS);
+        $delay    = $step;
+
+        // PROBE
+        while ($delay <= $maxDelay && $out['probes'] < self::INCR_DELAY_MAX_PROBES) {
+            $out['probes']++;
+            $this->reportStatus($scheduleData, 'scheduling', $candidatesList, $committed, $rejected, $candidate, $delay);
+            $r = $run($delay);
+            if ($r['expanded']) {
+                return ['expanded' => true, 'expandWhen' => '(opened mid probe)'] + $out;
+            }
+            if ($r['candidateRejected']) {
+                self::schedLog()->info("[INCR_DELAY] probe +{$delay} min → candidate hard-rejected; "
+                    . "further delay cannot help. Stopping probe.");
+                $out['rejectedAt'] = $r;
+                return $out;
+            }
+            if (empty($r['partials'])) {
+                $out['okDelay'] = $delay;
+                $out['cleanPlantChoice'] = $this->passPlantChoice;
+                $out['cleanTimes'] = $r['times'];
+                self::schedLog()->info("[INCR_DELAY] probe +{$delay} min → clean (0 partials); "
+                    . "bracketed a working delay, refining toward the minimum.");
+                break;
+            }
+            self::schedLog()->info("[INCR_DELAY] probe +{$delay} min → still "
+                . count($r['partials']) . " partial(s); growing step.");
+            $noteFailure($r);
+            $lastFail = $delay;
+            $delay   += $step;
+            $step    *= 2;
+        }
+
+        // Geometric growth may have jumped past the cap without testing it.
+        if ($out['okDelay'] === null && $lastFail < $maxDelay && $out['probes'] < self::INCR_DELAY_MAX_PROBES) {
+            $out['probes']++;
+            $r = $run($maxDelay);
+            if ($r['expanded']) {
+                return ['expanded' => true, 'expandWhen' => '(opened at cap probe)'] + $out;
+            } elseif ($r['candidateRejected']) {
+                $out['rejectedAt'] = $r;
+                return $out;
+            } elseif (empty($r['partials'])) {
+                $out['okDelay'] = $maxDelay;
+                $out['cleanPlantChoice'] = $this->passPlantChoice;
+                $out['cleanTimes'] = $r['times'];
+                self::schedLog()->info("[INCR_DELAY] probe +{$maxDelay} min (cap) → clean (0 partials).");
+            } else {
+                $lastFail = $maxDelay;
+                $noteFailure($r);
+            }
+        }
+        if ($out['okDelay'] === null) {
+            return $out;
+        }
+
+        // REFINE
+        $lo = $lastFail;
+        $hi = $out['okDelay'];
+        $out['best'] = $out['okDelay'];
+        while (($hi - $lo) > 1 && $out['refine'] < self::INCR_DELAY_MAX_REFINE) {
+            $out['refine']++;
+            $mid = intdiv($lo + $hi, 2);
+            $r = $run($mid);
+            if ($r['expanded']) {
+                return ['expanded' => true, 'expandWhen' => '(opened mid refine)'] + $out;
+            }
+            if (!$r['candidateRejected'] && empty($r['partials'])) {
+                $out['best'] = $mid;
+                $hi = $mid;
+                $out['cleanPlantChoice'] = $this->passPlantChoice;
+                $out['cleanTimes'] = $r['times'];
+                self::schedLog()->info("[INCR_DELAY] refine +{$mid} min → clean; trying smaller.");
+            } else {
+                $lo = $mid;
+                self::schedLog()->info("[INCR_DELAY] refine +{$mid} min → not clean; trying larger.");
+            }
+        }
+        return $out;
+    }
+
+    /**
+     * Minutes the candidate's first pour starts after its requested time in a
+     * pass result (0 when on time or early), or null when it did not start.
+     */
+    private function candidateLateMinutes(array $res, $candidate): ?int
+    {
+        $start = $res['times'][(string) $candidate->order_no]['start'] ?? null;
+        if (empty($start)) {
+            return null;
+        }
+        return max(0, (int) Carbon::parse($candidate->delivery_date)->diffInMinutes(Carbon::parse($start), false));
+    }
+
+    /**
+     * Rank a clean pass result for plant choice: earliest first-trip start
+     * first, then least extra pour time (fewer waits between trips).
+     */
+    private function plantRank(array $res, $candidate): ?array
+    {
+        $late = $this->candidateLateMinutes($res, $candidate);
+        if ($late === null) {
+            return null;
+        }
+        return [$late, (int) ($res['times'][(string) $candidate->order_no]['stretch'] ?? 0)];
+    }
+
+    /**
+     * Plant choice: 1) the plant where the first trip starts earliest, 2) on a
+     * tie, the plant with the least extra pour time. predictBestPlant() only sees
+     * trips already placed earlier in the day, so it can pick a plant a higher-LPI
+     * order keeps busy later while another plant is free — so every open plant is
+     * tried at the order's own time and the best clean result is kept. Same
+     * checks as any pass: no partials, no pushing a higher-LPI order.
+     *
+     * @return array{res:array, plantChoice:array}
+     */
+    private function pickBestPlantAtNoDelay(
+        ScheduleData &$scheduleData,
+        array &$pristine,
+        array $allTrips,
+        $testOrders,
+        array $testOrderNos,
+        $candidate,
+        array $committedDelays,
+        array $committedTimes,
+        array $res
+    ): array {
+        $no          = (string) $candidate->order_no;
+        $plantChoice = $this->passPlantChoice;
+        $predicted   = $plantChoice[$candidate->order_no] ?? null;
+        $isClean     = !$res['candidateRejected'] && empty($res['partials']);
+        $rank        = $isClean ? $this->plantRank($res, $candidate) : null;
+        $describe    = fn(?array $k) => $k === null ? 'does not fit' : "start +{$k[0]} min, extra pour {$k[1]} min";
+
+        // Single-plant orders only (that is where a plant is chosen). A perfect
+        // result (on time, no extra pour time) cannot be beaten.
+        if ($predicted === null || $rank === [0, 0]) {
+            return ['res' => $res, 'plantChoice' => $plantChoice];
+        }
+
+        $plants = array_values(array_unique(array_column($scheduleData->bps_availability ?? [], 'plant_name')));
+        $best = ['res' => $res, 'plantChoice' => $plantChoice, 'plant' => $predicted, 'rank' => $rank];
+        $tried = ["{$predicted}: " . $describe($rank)];
+
+        foreach ($plants as $plant) {
+            if ($plant === $predicted) {
+                continue;
+            }
+            $this->pinnedPlant[$candidate->order_no] = $plant;
+            $r = $this->scheduleCandidateAtDelay(
+                $scheduleData,
+                $pristine,
+                $allTrips,
+                $testOrders,
+                $testOrderNos,
+                $candidate,
+                $committedDelays,
+                0,
+                $committedTimes
+            );
+            unset($this->pinnedPlant[$candidate->order_no]);
+
+            if ($r['expanded']) {
+                // A plant opened — the caller restarts the run.
+                return ['res' => $r, 'plantChoice' => $this->passPlantChoice];
+            }
+            $clean = !$r['candidateRejected'] && empty($r['partials']);
+            $rRank = $clean ? $this->plantRank($r, $candidate) : null;
+            $tried[] = "{$plant}: " . $describe($rRank);
+
+            // [start delay, extra pour] compared in that order.
+            if ($rRank !== null && ($best['rank'] === null || $rRank < $best['rank'])) {
+                $best = ['res' => $r, 'plantChoice' => $this->passPlantChoice, 'plant' => $plant, 'rank' => $rRank];
+                if ($rRank === [0, 0]) {
+                    break; // perfect — cannot do better
+                }
+            }
+        }
+
+        self::schedLog()->info("[PLANT_PICK] {$no} (LPI #" . $this->lpiSequence($candidate) . ") per plant: "
+            . implode(', ', $tried) . " → using {$best['plant']}"
+            . ($best['plant'] !== $predicted ? " (instead of predicted {$predicted})" : ""));
+
+        return ['res' => $best['res'], 'plantChoice' => $best['plantChoice']];
     }
 
     /**
@@ -1209,9 +1383,13 @@ class ScheduleService
         $times = [];
         $rows = DB::table('selected_orders')
             ->whereIn('id', $orders->pluck('id')->toArray())
-            ->get(['order_no', 'start_time', 'end_time']);
+            ->get(['order_no', 'start_time', 'end_time', 'actual_delay']);
         foreach ($rows as $row) {
-            $times[(string) $row->order_no] = ['start' => $row->start_time, 'end' => $row->end_time];
+            $times[(string) $row->order_no] = [
+                'start'   => $row->start_time,
+                'end'     => $row->end_time,
+                'stretch' => (int) ($row->actual_delay ?? 0), // extra pour time vs expected (the "min delay" badge)
+            ];
         }
         return $times;
     }
