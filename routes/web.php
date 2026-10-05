@@ -341,7 +341,10 @@ Route::group(['middleware' => ['auth:web', 'admin']], function () {
     });
     Route::get('orders/schedule/export', [OrderController::class, 'exportSchedule'])
         ->name('orders.schedule.export');
-    Route::get('/logs', function () {
+    // Live view of scheduling.log: the page polls /logs/tail for new bytes.
+    Route::view('/logs', 'logs.live')->name('logs.live');
+    Route::redirect('/logs/live', '/logs');
+    Route::get('/logs/raw', function () {
         $logPath = storage_path('logs/scheduling.log');
 
         if (!file_exists($logPath)) {
@@ -350,4 +353,36 @@ Route::group(['middleware' => ['auth:web', 'admin']], function () {
 
         return response()->file($logPath);
     });
+    Route::get('/logs/tail', function (\Illuminate\Http\Request $request) {
+        $logPath = storage_path('logs/scheduling.log');
+        if (!file_exists($logPath)) {
+            return response()->json(['offset' => 0, 'text' => '', 'reset' => true]);
+        }
+
+        clearstatcache(true, $logPath);
+        $size   = filesize($logPath);
+        $offset = (int) $request->query('offset', -1);
+        $reset  = false;
+
+        // First load: last 200 KB. File shrank (cleared/rotated): start over.
+        if ($offset < 0 || $offset > $size) {
+            $offset = max(0, $size - 200 * 1024);
+            $reset  = true;
+        }
+
+        $length = min($size - $offset, 512 * 1024);
+        $text   = '';
+        if ($length > 0) {
+            $fh = fopen($logPath, 'rb');
+            fseek($fh, $offset);
+            $text = fread($fh, $length);
+            fclose($fh);
+        }
+
+        return response()->json([
+            'offset' => $offset + strlen($text),
+            'text'   => mb_convert_encoding($text, 'UTF-8', 'UTF-8'),
+            'reset'  => $reset,
+        ]);
+    })->name('logs.tail');
 });

@@ -2520,10 +2520,10 @@ class OrderController extends Controller
         
             
         
-        Log::build([
-            'driver' => 'single',
-            'path'   => storage_path('logs/scheduling.log'),
-        ])->info($breakdown);
+        // Not written to scheduling.log any more: this is the old LPI formula
+        // (pump, dispatch priority, travel distance, pour type). LpiRankingService
+        // replaces the score at Generate and logs the real [LPI] breakdown, so
+        // printing this one on /logs showed two different LPIs for the same order.
 
         // Compact one-liner kept for grep/filter compatibility with old tools
         // Log::info("[LPI] Order {$order->order_no} "

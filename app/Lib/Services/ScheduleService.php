@@ -210,6 +210,9 @@ class ScheduleService
     const INCR_DELAY_PROBE_BASE_MINS = 1; // first geometric probe step (then doubles)
     const INCR_DELAY_MAX_PROBES    = 12;  // hard cap on probe schedule passes
     const INCR_DELAY_MAX_REFINE    = 8;   // hard cap on binary-refine schedule passes
+    // LPI protection: a later (lower-LPI) candidate may not move an accepted
+    // order's first pour (start) later than this many minutes.
+    const INCR_PUSH_TOLERANCE_MINUTES = 0;
     // Grace tolerance (minutes) on the per-order delay-limit check. The hard
     // limit is expected_duration + max_delay. A trip whose elapsed span exceeds
     // that limit by no more than this grace is still accepted at its current
@@ -469,6 +472,55 @@ class ScheduleService
      * job to set once the run is fully marked completed. Failures here must
      * never break scheduling, so everything is wrapped in a try/catch.
      */
+    /**
+     * Live run details for the overview page: the order being scheduled now,
+     * the confirmed orders and the rejected ones. Stored as JSON in
+     * schedule_runs.message while the run is processing (the job clears it on
+     * completion). Display only — it never affects scheduling.
+     */
+    private function reportStatus(
+        ScheduleData $scheduleData,
+        string $stage,
+        $allOrders,
+        $committed,
+        array $rejected,
+        $current = null,
+        ?int $tryingDelay = null
+    ): void {
+        try {
+            $byId = $allOrders->keyBy('id');
+            $payload = [
+                'stage'      => $stage,
+                'total'      => $allOrders->count(),
+                'done_count' => $committed->count() + count($rejected),
+                'committed'  => $committed->pluck('order_no')->map(fn($n) => (string) $n)->values()->all(),
+                'rejected'   => collect($rejected)
+                    ->map(fn($reason, $id) => [
+                        'order_no' => (string) ($byId[$id]->order_no ?? $id),
+                        'reason'   => trim((string) $reason),
+                    ])->values()->all(),
+                'current'    => $current ? [
+                    'order_no'     => (string) $current->order_no,
+                    'qty'          => (float) $current->quantity,
+                    'seq'          => $this->lpiSequence($current),
+                    'trying_delay' => $tryingDelay,
+                ] : null,
+            ];
+
+            DB::table('schedule_runs')
+                ->where('group_company_id', $scheduleData->company)
+                ->where('user_id', $scheduleData->user_id)
+                ->where('schedule_date', $scheduleData->schedule_date)
+                ->where('status', 'processing')
+                ->update([
+                    'message'    => json_encode($payload),
+                    'updated_at' => now(),
+                ]);
+        } catch (\Throwable $e) {
+            self::schedLog()->warning('[PROGRESS] status update failed: ' . $e->getMessage());
+        }
+    }
+
     private function reportProgress(ScheduleData $scheduleData, int $done, int $total): void
     {
         if ($total < 1) {
@@ -625,18 +677,16 @@ class ScheduleService
         $committed       = collect();   // orders that schedule cleanly together so far
         $rejected        = [];          // order_id => reason
         $committedDelays = [];          // order_no => accepted delay in minutes
+        $committedTimes  = [];          // order_no => accepted pour start/end (LPI protection)
         $this->pinnedPlant = [];        // fresh run: nothing pinned yet
 
         $candidatesList = $allOrders->values();
         $candidateIdx   = 0;
 
-        // NOTE: unlike a full restart, a mid-pass plant expansion here does
-        // NOT reset $committed / $committedDelays and does NOT go back to
-        // the top of the candidate list. It only rewinds $candidateIdx back
-        // to the SAME candidate that triggered the expansion (which then
-        // gets retried from delay 0 / its original time on the wider
-        // fleet), via `continue` without incrementing $candidateIdx. Every
-        // already-committed candidate and its accepted delay is kept as-is.
+        // NOTE: when a plant opens mid-pass, restartAfterPlantExpansion() resets
+        // $committed / $rejected / $committedDelays / $committedTimes and sets
+        // $candidateIdx back to 0, so every order is re-evaluated from LPI #1 at
+        // its original time on the wider fleet.
         while ($candidateIdx < $candidatesList->count()) {
             $candidate = $candidatesList[$candidateIdx];
 
@@ -647,6 +697,7 @@ class ScheduleService
                 $committed->count() + count($rejected),
                 $candidatesList->count()
             );
+            $this->reportStatus($scheduleData, 'scheduling', $candidatesList, $committed, $rejected, $candidate);
 
             // Test set = everything accepted so far + this candidate.
             $testOrders   = $committed->concat([$candidate])->values();
@@ -675,13 +726,12 @@ class ScheduleService
                 $testOrderNos,
                 $candidate,
                 $committedDelays,
-                0
+                0,
+                $committedTimes
             );
             if ($res['expanded']) {
-                [$allOrders, $allTrips, $candidatesList, $candidateIdx, $committed] =
-                    $this->rebuildAfterPlantExpansion($scheduleData, $allOrders, $allTrips, $candidate, $committed);
-                self::schedLog()->info("[PLANT_EXPAND] retrying {$candidate->order_no} on the wider fleet — "
-                    . $committed->count() . " already-committed order(s) kept as-is (no full reset).");
+                [$allOrders, $allTrips, $candidatesList, $candidateIdx, $committed, $rejected, $committedDelays, $committedTimes] =
+                    $this->restartAfterPlantExpansion($scheduleData, $allOrders, $allTrips, $candidate, $committed, '(opened at +0 min)');
                 continue;
             }
             $scope = "on the available plant(s)";
@@ -696,6 +746,7 @@ class ScheduleService
             }
             if (empty($res['partials'])) {
                 $committed = $testOrders;
+                $committedTimes = $res['times'];
                 $this->pinCommittedPlants($committed, $this->passPlantChoice);
                 self::schedLog()->info("[INCR_SCHED] ✓ {$candidate->order_no} accepted "
                     . "(committed now " . $committed->count() . " order(s))");
@@ -717,6 +768,8 @@ class ScheduleService
             // on a dirty pass, so snapshot at each clean point rather than
             // trusting whatever the final pass happened to leave behind.
             $cleanPlantChoice = [];
+            $cleanTimes = [];
+            $pushReasonSeen = !empty($res['pushed']) ? $res['pushed'][0]['reason'] : null;
             $step       = max(1, self::INCR_DELAY_PROBE_BASE_MINS);
             $delay      = $step;
             // Remember the candidate's OWN recorded reason (e.g. a pump
@@ -727,6 +780,7 @@ class ScheduleService
             // PROBE
             while ($delay <= $maxDelay && $probes < self::INCR_DELAY_MAX_PROBES) {
                 $probes++;
+                $this->reportStatus($scheduleData, 'scheduling', $candidatesList, $committed, $rejected, $candidate, $delay);
                 $r = $this->scheduleCandidateAtDelay(
                     $scheduleData,
                     $pristine,
@@ -735,7 +789,8 @@ class ScheduleService
                     $testOrderNos,
                     $candidate,
                     $committedDelays,
-                    $delay
+                    $delay,
+                    $committedTimes
                 );
                 if ($r['expanded']) {
                     $expanded = true;
@@ -750,6 +805,7 @@ class ScheduleService
                 if (empty($r['partials'])) {
                     $okDelay = $delay;
                     $cleanPlantChoice = $this->passPlantChoice;
+                    $cleanTimes = $r['times'];
                     self::schedLog()->info("[INCR_DELAY] probe +{$delay} min → clean (0 partials); "
                         . "bracketed a working delay, refining toward the minimum.");
                     break;
@@ -757,16 +813,15 @@ class ScheduleService
                 self::schedLog()->info("[INCR_DELAY] probe +{$delay} min → still "
                     . count($r['partials']) . " partial(s); growing step.");
                 $seenReason = $this->candidatePartialReason($r['partials'], $candidate);
+                if (!empty($r['pushed'])) { $pushReasonSeen = $r['pushed'][0]['reason']; }
                 if ($seenReason !== null) { $candidateReasonSeen = $seenReason; }
                 $lastFail = $delay;
                 $delay   += $step;
                 $step    *= 2;
             }
             if ($expanded) {
-                [$allOrders, $allTrips, $candidatesList, $candidateIdx, $committed] =
-                    $this->rebuildAfterPlantExpansion($scheduleData, $allOrders, $allTrips, $candidate, $committed);
-                self::schedLog()->info("[PLANT_EXPAND] retrying {$candidate->order_no} on the wider fleet "
-                    . "(opened mid probe) — " . $committed->count() . " already-committed order(s) kept as-is.");
+                [$allOrders, $allTrips, $candidatesList, $candidateIdx, $committed, $rejected, $committedDelays, $committedTimes] =
+                    $this->restartAfterPlantExpansion($scheduleData, $allOrders, $allTrips, $candidate, $committed, '(opened mid probe)');
                 continue;
             }
 
@@ -784,7 +839,8 @@ class ScheduleService
                     $testOrderNos,
                     $candidate,
                     $committedDelays,
-                    $maxDelay
+                    $maxDelay,
+                    $committedTimes
                 );
                 if ($r['expanded']) {
                     $expanded = true;
@@ -793,18 +849,18 @@ class ScheduleService
                 } elseif (empty($r['partials'])) {
                     $okDelay = $maxDelay;
                     $cleanPlantChoice = $this->passPlantChoice;
+                    $cleanTimes = $r['times'];
                     self::schedLog()->info("[INCR_DELAY] probe +{$maxDelay} min (cap) → clean (0 partials).");
                 } else {
                     $lastFail = $maxDelay;
                     $seenReason = $this->candidatePartialReason($r['partials'], $candidate);
+                    if (!empty($r['pushed'])) { $pushReasonSeen = $r['pushed'][0]['reason']; }
                     if ($seenReason !== null) { $candidateReasonSeen = $seenReason; }
                 }
             }
             if ($expanded) {
-                [$allOrders, $allTrips, $candidatesList, $candidateIdx, $committed] =
-                    $this->rebuildAfterPlantExpansion($scheduleData, $allOrders, $allTrips, $candidate, $committed);
-                self::schedLog()->info("[PLANT_EXPAND] retrying {$candidate->order_no} on the wider fleet "
-                    . "(opened at cap probe) — " . $committed->count() . " already-committed order(s) kept as-is.");
+                [$allOrders, $allTrips, $candidatesList, $candidateIdx, $committed, $rejected, $committedDelays, $committedTimes] =
+                    $this->restartAfterPlantExpansion($scheduleData, $allOrders, $allTrips, $candidate, $committed, '(opened at cap probe)');
                 continue;
             }
 
@@ -820,7 +876,9 @@ class ScheduleService
                 // Never committed — drop any expansion pin so it cannot leak.
                 unset($this->pinnedPlant[$candidate->order_no]);
                 $rejected[$candidate->id] = $candidateReasonSeen
-                    ?: "This order could not be scheduled because all available plants are at full capacity.";
+                    ?: ($pushReasonSeen !== null
+                        ? "This order could not be scheduled without delaying a higher-LPI order. {$pushReasonSeen}."
+                        : "This order could not be scheduled because all available plants are at full capacity.");
                 self::schedLog()->info("[INCR_SCHED] ✗ {$candidate->order_no} rejected — no delay up to "
                     . "+{$maxDelay} min cleared the partials ({$probes} probe(s)); committed set unchanged");
                 $candidateIdx++;
@@ -842,7 +900,8 @@ class ScheduleService
                     $testOrderNos,
                     $candidate,
                     $committedDelays,
-                    $mid
+                    $mid,
+                    $committedTimes
                 );
                 if ($r['expanded']) {
                     $expanded = true;
@@ -852,6 +911,7 @@ class ScheduleService
                     $best = $mid;
                     $hi   = $mid;
                     $cleanPlantChoice = $this->passPlantChoice;
+                    $cleanTimes = $r['times'];
                     self::schedLog()->info("[INCR_DELAY] refine +{$mid} min → clean; trying smaller.");
                 } else {
                     $lo = $mid;
@@ -859,14 +919,13 @@ class ScheduleService
                 }
             }
             if ($expanded) {
-                [$allOrders, $allTrips, $candidatesList, $candidateIdx, $committed] =
-                    $this->rebuildAfterPlantExpansion($scheduleData, $allOrders, $allTrips, $candidate, $committed);
-                self::schedLog()->info("[PLANT_EXPAND] retrying {$candidate->order_no} on the wider fleet "
-                    . "(opened mid refine) — " . $committed->count() . " already-committed order(s) kept as-is.");
+                [$allOrders, $allTrips, $candidatesList, $candidateIdx, $committed, $rejected, $committedDelays, $committedTimes] =
+                    $this->restartAfterPlantExpansion($scheduleData, $allOrders, $allTrips, $candidate, $committed, '(opened mid refine)');
                 continue;
             }
 
             $committed = $testOrders;
+            $committedTimes = $cleanTimes;
             $this->pinCommittedPlants($committed, $cleanPlantChoice);
             $committedDelays[$candidate->order_no] = $best;
             self::schedLog()->info("[INCR_SCHED] ✓ {$candidate->order_no} accepted with predicted +{$best} min delay "
@@ -877,6 +936,7 @@ class ScheduleService
 
         // ── Final canonical pass: rebuild DB with ONLY the committed set. ──
         // trial_mode OFF — this pass writes the real schedule rows.
+        $this->reportStatus($scheduleData, 'final', $allOrders, $committed, $rejected);
         $scheduleData->trial_mode = false;
         $this->restorePools($scheduleData, $pristine);
         $this->clearPreviousSchedules(
@@ -892,9 +952,60 @@ class ScheduleService
                     ? " (delays applied: " . $this->describeDelays($committedDelays, $committedNos) . ")"
                     : ""));
             $this->scheduleTripsChronologically($scheduleData, $committedTrips, $committed);
+
+            // Safety net: partial scheduling is never allowed. If the final pass
+            // left any order only partly delivered, remove its trips entirely.
+            foreach ($this->detectPartialOrders($scheduleData, $committed) as $p) {
+                if ((int) $p['delivered'] <= 0) {
+                    continue; // already fully rejected by the scheduler
+                }
+                self::schedLog()->error("[PARTIAL_BLOCKED] final pass left {$p['order_no']} at "
+                    . "{$p['delivered']}/{$p['quantity']} m³ — removing its trips (partial scheduling is not allowed).");
+                SelectedOrderSchedule::where('order_id', $p['id'])->delete();
+                SelectedOrderPumpSchedule::where('order_id', $p['id'])->delete();
+                DB::table('selected_orders')->where('id', $p['id'])->update([
+                    'delivered_quantity' => 0,
+                    'start_time'         => null,
+                    'end_time'           => null,
+                    'failure_reason'     => "Order could not be fully scheduled — partial scheduling is not allowed.",
+                ]);
+            }
         }
 
         return ['committed' => $committed, 'rejected' => $rejected];
+    }
+
+    /**
+     * A plant opened mid-run: start the whole incremental schedule again from
+     * LPI #1 on the wider fleet. Every order goes back to its ORIGINAL time —
+     * accepted orders, their delays, rejections, the LPI-protection baseline and
+     * plant pins from the narrower fleet are all discarded. Otherwise a higher-LPI
+     * order delayed on the old fleet (e.g. LPI #2 at 8:15) would keep its delay
+     * while a lower-LPI order took the new plant's free slot at 8:00.
+     * Bounded: each restart opens one more plant, up to max_plant_count.
+     *
+     * @return array [allOrders, allTrips, candidatesList, candidateIdx, committed,
+     *                rejected, committedDelays, committedTimes]
+     */
+    private function restartAfterPlantExpansion(
+        ScheduleData &$scheduleData,
+        $allOrders,
+        array $allTrips,
+        $candidate,
+        $committed,
+        string $when
+    ): array {
+        // Refreshes pump durations / orders / trips for the wider fleet.
+        [$allOrders, $allTrips, $candidatesList] =
+            $this->rebuildAfterPlantExpansion($scheduleData, $allOrders, $allTrips, $candidate, $committed);
+        $this->pinnedPlant = [];
+
+        self::schedLog()->info("[PLANT_EXPAND] {$candidate->order_no} could not fit {$when} — plant opened "
+            . "({$scheduleData->opened_plant_count} of {$scheduleData->max_plant_count}). FULL RESTART from LPI #1: "
+            . $committed->count() . " accepted order(s) and their delays discarded; every order is "
+            . "re-evaluated at its original time on the wider fleet.");
+
+        return [$allOrders, $allTrips, $candidatesList, 0, collect(), [], [], []];
     }
 
     /**
@@ -967,9 +1078,8 @@ class ScheduleService
      * Single-plant → full-fleet expansion: if a HARD rejection remains while
      * consolidated on one plant and a second distinct plant exists, it opens the
      * full fleet (mutating $scheduleData and $pristine by reference) and returns
-     * expanded=true. The caller (runIncrementalSchedule) then retries just the
-     * SAME candidate on the wider fleet via rebuildAfterPlantExpansion() —
-     * already-committed candidates and their accepted delays are kept as-is,
+     * expanded=true. The caller (runIncrementalSchedule) then restarts the whole
+     * run from LPI #1 on the wider fleet via restartAfterPlantExpansion(),
      * so this method does NOT reschedule after expanding.
      *
      * @return array{partials:array, rejectedOrders:array, candidateRejected:bool, candidateReason:?string, expanded:bool}
@@ -982,7 +1092,8 @@ class ScheduleService
         array $testOrderNos,
         $candidate,
         array $committedDelays,
-        int $delayMinutes
+        int $delayMinutes,
+        array $committedTimes = []
     ): array {
         $delaysByOrderNo = $committedDelays;
         $delaysByOrderNo[$candidate->order_no] = $delayMinutes;
@@ -1068,14 +1179,109 @@ class ScheduleService
             }
         }
 
+        // LPI protection: if this candidate pushed an already-accepted (higher-LPI)
+        // order later, the pass is not clean — the candidate has to wait instead.
+        // Added after the plant-expansion check so pushes never open plants.
+        $times  = $this->readOrderTimes($testOrders);
+        $pushed = $expanded ? [] : $this->detectPushedOrders($times, $committedTimes, $candidate, $delayMinutes, $testTrips);
+        foreach ($pushed as $p) {
+            $partials[] = $p;
+        }
+
         return [
             'partials'          => $partials,
             'rejectedOrders'    => $rejectedOrders,
             'candidateRejected' => $candidateRejected,
             'candidateReason'   => $candidateReason,
             'expanded'          => $expanded,
+            'times'             => $times,
+            'pushed'            => $pushed,
         ];
     }
+
+    /**
+     * First pour start and last pour end of each order, as the last pass saved them.
+     *
+     * @return array<string,array{start:?string,end:?string}> order_no => times
+     */
+    private function readOrderTimes($orders): array
+    {
+        $times = [];
+        $rows = DB::table('selected_orders')
+            ->whereIn('id', $orders->pluck('id')->toArray())
+            ->get(['order_no', 'start_time', 'end_time']);
+        foreach ($rows as $row) {
+            $times[(string) $row->order_no] = ['start' => $row->start_time, 'end' => $row->end_time];
+        }
+        return $times;
+    }
+
+    /**
+     * Accepted orders whose first pour (start) moved later than when they
+     * were accepted. Returned in the detectPartialOrders() shape so the delay
+     * search treats a push exactly like a partial: it delays the candidate.
+     */
+    private function detectPushedOrders(array $times, array $committedTimes, $candidate, int $delayMinutes, array $testTrips): array
+    {
+        // Time window each order occupies in this pass: first loading → last truck back.
+        $windows = [];
+        foreach ($testTrips as $t) {
+            $no = (string) $t['order_no'];
+            $ls = Carbon::parse($t['loading_start'])->timestamp;
+            $re = Carbon::parse($t['return_end'] ?? $t['loading_start'])->timestamp;
+            $windows[$no]['from'] = min($windows[$no]['from'] ?? PHP_INT_MAX, $ls);
+            $windows[$no]['to']   = max($windows[$no]['to'] ?? 0, $re);
+        }
+        $candNo = (string) $candidate->order_no;
+        $candWindow = $windows[$candNo] ?? null;
+        if ($candWindow && !empty($times[$candNo]['end'])) {
+            // The candidate may have run later than planned (waited for a truck).
+            $candWindow['to'] = max($candWindow['to'], Carbon::parse($times[$candNo]['end'])->timestamp);
+        }
+
+        $pushed = [];
+        foreach ($committedTimes as $orderNo => $accepted) {
+            $orderNo = (string) $orderNo;
+            if ($orderNo === (string) $candidate->order_no || !isset($times[$orderNo])) {
+                continue;
+            }
+            // Only the start is protected. The pour span of an accepted order is
+            // already bounded by its own max_delay; protecting the last pour too
+            // pushed mid-LPI orders back by hours to save a few minutes.
+            if (empty($accepted['start']) || empty($times[$orderNo]['start'])) {
+                continue;
+            }
+            $late = Carbon::parse($accepted['start'])->diffInMinutes(Carbon::parse($times[$orderNo]['start']), false);
+            if ($late <= self::INCR_PUSH_TOLERANCE_MINUTES) {
+                continue;
+            }
+            // Only a candidate that is active at the same time can take this
+            // order's plant, truck or pump. If they don't overlap, the shift is a
+            // side effect (e.g. a different truck size picked later in the day),
+            // not the candidate pushing it — so it doesn't count.
+            $other = $windows[$orderNo] ?? null;
+            if ($candWindow && $other
+                && ($candWindow['to'] <= $other['from'] || $candWindow['from'] >= $other['to'])) {
+                self::schedLog()->info("[LPI_PROTECT] ignoring {$orderNo} start +{$late} min: candidate "
+                    . "{$candidate->order_no} is not active at the same time (side effect, not a push).");
+                continue;
+            }
+            $move = "start " . Carbon::parse($accepted['start'])->format('H:i')
+                . "→" . Carbon::parse($times[$orderNo]['start'])->format('H:i') . " (+{$late} min)";
+            self::schedLog()->info("[LPI_PROTECT] candidate {$candidate->order_no} (LPI #"
+                . $this->lpiSequence($candidate) . ") at +{$delayMinutes} min would push accepted order "
+                . "{$orderNo}: {$move} — not allowed, the candidate must wait.");
+            $pushed[] = [
+                'id'             => null,
+                'order_no'       => $orderNo,
+                'pushed_by'      => $candidate->order_no,
+                'failure_reason' => '',
+                'reason'         => "Would delay higher-LPI order {$orderNo}: {$move}",
+            ];
+        }
+        return $pushed;
+    }
+
 
     /**
      * Build the trip list for a set of orders, applying a per-order delay (in
@@ -1860,8 +2066,10 @@ class ScheduleService
                                     . (isset($delay['pump_id']) ? " (pump #{$delay['pump_id']})" : "") . "."
                             );
                             if ($retryOffset + $delay_time > $maxRetryMinutes) {
-                                $orderFailed[$orderNo] = "Pump unavailable. With  in Max allowed delay time: " .
-                                    Carbon::parse($order->delivery_date)->addMinutes($maxRetryMinutes)->format('h:i A');
+                                $orderFailed[$orderNo] = "No pump is free for this order: all pumps are busy from the requested time "
+                                    . Carbon::parse($order->delivery_date)->format('h:i A')
+                                    . " until the latest allowed start "
+                                    . Carbon::parse($order->delivery_date)->addMinutes($maxRetryMinutes)->format('h:i A') . ".";
                                 break;
                             }
                             $reason = "Pump not found for order {$order->order_no}";
@@ -2230,7 +2438,11 @@ class ScheduleService
             if ($order->pump) {
                 $pumpAssigned =  $this->assignPump($order, $scheduleData, $order->location);
                 if (!$pumpAssigned) {
-                    $scheduleData->failure_reason    = "No available pump found with in delay limit tolerance." . $order->tolerance . ",Max Delay limit " . $order->max_delay . "min";
+                    // Keep the "No available pump found" prefix: HARD_REJECT_REASON_MARKERS matches it.
+                    $scheduleData->failure_reason    = "No available pump found within the allowed delay for this order "
+                        . "(max delay {$order->max_delay} min"
+                        . ($order->tolerance !== null && $order->tolerance !== '' ? ", tolerance {$order->tolerance}" : "")
+                        . ").";
                     $scheduleData->schedules         = [];
                     $scheduleData->delivered_quantity = 0;
                     DB::table('selected_orders')

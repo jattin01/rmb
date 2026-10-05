@@ -379,14 +379,28 @@
     var STATUS_URL       = "{{ route('orders.schedule.status') }}";
     var OVERVIEW_ROW_URL = "{{ route('orders.schedule.overview.row') }}";
     var SCHEDULE_VIEW_URL = "{{ route('orders.schedule.view') }}";
+    var LIVE_LOGS_URL    = "{{ route('logs.live') }}";
 
     // Keeps track of dates we're already polling so we never double-poll one row
     var activePolls = {};
 
-    function statusBadgeHtml(status) {
+    // Processing badge with the engine's progress (schedule_runs.progress).
+    function processingHtml(progress) {
+        if (progress === undefined || progress === null) {
+            return '<span class="badge badge-warning">Processing</span>';
+        }
+        var pct = Math.max(0, Math.min(100, parseInt(progress, 10) || 0));
+        return '<span class="badge badge-warning">Processing ' + pct + '%</span>'
+            + '<div class="progress mt-1" style="height:6px;min-width:90px;">'
+            + '<div class="progress-bar progress-bar-striped progress-bar-animated bg-warning" '
+            + 'role="progressbar" style="width:' + pct + '%;" aria-valuenow="' + pct + '" '
+            + 'aria-valuemin="0" aria-valuemax="100"></div></div>';
+    }
+
+    function statusBadgeHtml(status, progress) {
         switch (status) {
             case 'completed':  return '<span class="badge badge-success">Completed</span>';
-            case 'processing': return '<span class="badge badge-warning">Processing</span>';
+            case 'processing': return processingHtml(progress);
             case 'queued':     return '<span class="badge badge-secondary">Queued</span>';
             case 'failed':     return '<span class="badge badge-danger">Failed</span>';
             default:           return '<span class="badge badge-secondary">Pending</span>';
@@ -400,14 +414,17 @@
                 + '&company_id=' + encodeURIComponent(companyId);
             return '<a href="' + url + '" class="btn btn-sm btn-primary">View Schedule</a>';
         }
+        if (status === 'processing') {
+            return '<a href="' + LIVE_LOGS_URL + '" target="_blank" class="btn btn-sm btn-outline-secondary">Live logs</a>';
+        }
         return statusBadgeHtml(status);
     }
 
-    function applyRowStatus($tr, status) {
+    function applyRowStatus($tr, status, progress) {
         var scheduleDate = $tr.data('date');
         var companyId    = $tr.data('company');
         $tr.attr('data-status', status);
-        $tr.find('.js-status-cell').html(statusBadgeHtml(status));
+        $tr.find('.js-status-cell').html(statusBadgeHtml(status, progress));
         $tr.find('.js-action-cell').html(actionCellHtml(status, scheduleDate, companyId));
     }
 
@@ -442,15 +459,19 @@
         var $tr = $('tr[data-date="' + scheduleDate + '"][data-company="' + companyId + '"]');
         if ($tr.length) applyRowStatus($tr, 'processing');
 
-        activePolls[key] = setInterval(function () {
+        function check() {
             var params = { company_id: companyId, schedule_date: scheduleDate };
             if (runId) params.run_id = runId;
 
             $.get(STATUS_URL, params).done(function (res) {
                 if (res.status === 'processing' || res.status === 'queued') {
-                    if ($tr.length) applyRowStatus($tr, res.status);
+                    if ($tr.length) {
+                        applyRowStatus($tr, res.status, res.progress);
+                        showRunStatus($tr, res.status === 'processing' ? res.message : null);
+                    }
                     return;
                 }
+                if ($tr.length) showRunStatus($tr, null);
                 if (res.status === 'completed') {
                     clearInterval(activePolls[key]);
                     delete activePolls[key];
@@ -464,7 +485,57 @@
                 }
             });
             // transient network errors: keep polling
-        }, 4000);
+        }
+
+        activePolls[key] = setInterval(check, 4000);
+        check();
+    }
+
+    // Live run details under the row: which order is being scheduled now,
+    // which are confirmed and which could not be fitted. The job stores them
+    // as JSON in schedule_runs.message while it runs.
+    function showRunStatus($tr, message) {
+        var $info = $tr.next('.js-run-status');
+        var data = null;
+        try { data = message ? JSON.parse(message) : null; } catch (e) { data = null; }
+
+        if (!data || !data.stage) {
+            $info.remove();
+            return;
+        }
+        if (!$info.length) {
+            $info = $('<tr class="js-run-status"><td colspan="8" style="background:#fffbea;font-size:13px;"></td></tr>');
+            $tr.after($info);
+        }
+
+        var esc = function (s) { return $('<div>').text(s == null ? '' : String(s)).html(); };
+        var html = '';
+        if (data.stage === 'final') {
+            html += '<b>Saving the final schedule…</b>';
+        } else if (data.current) {
+            html += '<b>Now scheduling:</b> order ' + esc(data.current.order_no)
+                + ' (' + esc(data.current.qty) + ' m³, LPI #' + esc(data.current.seq) + ')'
+                + ' — ' + esc(data.done_count) + ' of ' + esc(data.total) + ' orders checked';
+            if (data.current.trying_delay) {
+                html += ' · <span class="text-muted">does not fit at its time, trying '
+                    + esc(data.current.trying_delay) + ' min later</span>';
+            }
+        }
+        if (data.committed && data.committed.length) {
+            html += '<br><span class="text-success">&#10003; Confirmed (' + data.committed.length + '):</span> '
+                + data.committed.map(esc).join(', ');
+        }
+        if (data.rejected && data.rejected.length) {
+            html += '<br><span class="text-danger">&#10007; Could not be scheduled (' + data.rejected.length + '):</span>';
+            data.rejected.forEach(function (r) {
+                // Older runs sent only the order number.
+                var no = (typeof r === 'object') ? r.order_no : r;
+                var reason = (typeof r === 'object') ? r.reason : '';
+                html += '<br>&nbsp;&nbsp;&bull; <b>' + esc(no) + '</b>'
+                    + (reason ? ' — <span class="text-danger">' + esc(reason) + '</span>' : '');
+            });
+        }
+        $info.find('td').html(html);
     }
 
     // On load: resume polling for any row that's still running so the user
