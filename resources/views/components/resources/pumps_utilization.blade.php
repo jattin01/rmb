@@ -102,7 +102,7 @@
 														</div>
 														<div>
 															<img src="{{asset('assets/img/metro-info.svg')}}" class="mr-2 cursor-pointer" data-toggle="modal" data-target="#filter" alt="">
-															<img src="{{asset('assets/img/gray-more.svg')}}" id = "more-icon-{{$res['order_no']}}"  alt="" style="cursor: pointer;" onclick="toggleDropdown({{$res['order_no']}})">
+															<img src="{{asset('assets/img/gray-more.svg')}}" id = "more-icon-{{$res['order_no']}}"  alt="" style="cursor: pointer;" onclick="toggleDropdown({{ json_encode((string) $res['order_no']) }})">
 														</div>
 													</div>
 													<span class="plant-texttable">{{$res['location']}}</span>

@@ -236,7 +236,7 @@
                                                                 <img src="{{ asset('assets/img/gray-more.svg') }}"
                                                                     id="more-icon-{{ $res['order_no'] }}" alt=""
                                                                     style="cursor: pointer;"
-                                                                    onclick="toggleDropdown({{ $res['order_no'] }})">
+                                                                    onclick="toggleDropdown({{ json_encode((string) $res['order_no']) }})">
                                                             </div>
                                                         </div>
 

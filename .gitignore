@@ -2,3 +2,5 @@ firebase-adminsdk-*.json
 antfast-*-firebase-adminsdk-*.json
 *.json
 .env
+/vendor/
+.phpunit.result.cache

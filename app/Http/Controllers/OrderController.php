@@ -104,6 +104,60 @@ class OrderController extends Controller
             return view('components.common.internal_error', ['message' => $ex->getMessage()]);
         }
     }
+
+    /**
+     * Step 1 calendar: order numbers for every date from `start` up to (not
+     * including) `end`. A date's orders are the ones step 2 would load for it —
+     * same company shift window and same Order::ByCompanyScheduleDate filter.
+     */
+    public function scheduleOrderDates(Request $request)
+    {
+        $request->validate([
+            'company_id' => 'required|integer',
+            'start'      => 'required|date_format:Y-m-d',
+            'end'        => 'required|date_format:Y-m-d|after:start',
+        ]);
+
+        $companyId = (int) $request->company_id;
+        if (!auth()->user()->access_rights->pluck('group_company_id')->contains($companyId)) {
+            return response()->json(['message' => 'Company not allowed'], 403);
+        }
+
+        try {
+            $start = Carbon::parse($request->start);
+            $end   = Carbon::parse($request->end);
+            // A month view shows at most 6 weeks.
+            if ($start->diffInDays($end) > 62) {
+                $end = $start->copy()->addDays(62);
+            }
+
+            $windows = [];
+            for ($day = $start->copy(); $day->lt($end); $day->addDay()) {
+                $windows[$day->toDateString()] = GroupCompanyHelper::getShiftTime($companyId, $day->toDateString());
+            }
+
+            $orders = Order::ByCompanyScheduleDate(
+                $companyId,
+                reset($windows)['start_time'],
+                end($windows)['end_time']
+            )->orderBy('delivery_date')->get(['order_no', 'delivery_date']);
+
+            $dates = [];
+            foreach ($windows as $date => $window) {
+                $orderNos = $orders
+                    ->filter(fn($o) => Carbon::parse($o->delivery_date)->between($window['start_time'], $window['end_time']))
+                    ->pluck('order_no')
+                    ->values();
+                if ($orderNos->isNotEmpty()) {
+                    $dates[$date] = $orderNos;
+                }
+            }
+
+            return response()->json(['dates' => $dates]);
+        } catch (Exception $ex) {
+            return response()->json(['message' => $ex->getMessage()], 500);
+        }
+    }
     public function createNewOrder(Request $request)
     {
         try {

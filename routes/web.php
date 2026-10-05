@@ -133,6 +133,7 @@ Route::group(['middleware' => ['auth:web', 'admin']], function () {
 
     Route::controller(OrderController::class)->group(function () {
         Route::get('/generate-schedule-step-1', 'scheduleViewStepOne')->name(RouteConstantHelper::ORDER_SCHEDULE_STEP_1);
+        Route::get('/generate-schedule-step-1/order-dates', 'scheduleOrderDates')->name('orders.schedule.step.one.dates');
         Route::post('/update-order', 'updateOrder')->name(RouteConstantHelper::UPDATE_SINGLE_ORDER);
         Route::get('/create-order', 'createNewOrder')->name("order.create.new");
         Route::post('/store-order', 'storeSingleOrder')->name("order.store.new");
