@@ -3127,10 +3127,15 @@ class ScheduleService
         $pumpsRequired = max(1, (int) ($order->used_pump ?? $order->pump_qty));
         $firstOrderTrip = $trips[0];
         $pumpsTrips = array_fill(0, $pumpsRequired, []);
+        // trip no => [pump index, truck sequence on that pump]; written back onto
+        // the truck rows once each pump is chosen.
+        $tripLane = [];
         foreach ($trips as $index => $trip) {
             $pumpIndex = $index % $pumpsRequired;
             $pumpsTrips[$pumpIndex][] = $trip;
+            $tripLane[$trip['trip']] = [$pumpIndex, count($pumpsTrips[$pumpIndex])];
         }
+        $lanePump = []; // pump index => ['name' => ..., 'id' => ...]
         $batchingQuantities = [];
         $batchingTrips = [];
         foreach ($pumpsTrips as $pumpIndex => $pumpTrips) {
@@ -3241,11 +3246,50 @@ class ScheduleService
             $installEnd = $waitingTime > 1 ? $installStart->copy()->addMinutes($installTime) : $groupPourStart->copy()->subMinute();
             $waitingStart = $waitingTime > 1 ? $installEnd->copy()->addMinute() : null;
             $waitingEnd = $waitingTime > 1 ? $groupPourStart->copy()->subMinute() : null;
-            $pouringTime = $groupPourStart->diffInMinutes($groupPourEnd);
-            $cleanStart = $groupPourEnd->copy()->addMinute();
+            // The pump is booked for the whole order window (busy slot below), but
+            // its row shows only the trucks it actually pours: its first truck can
+            // start after the order's first truck, and that gap is pump waiting.
+            $lanePourStart = $groupPourStart->copy();
+            $lanePourEnd = $groupPourEnd->copy();
+            $laneIdleMins = 0;
+            if (!empty($pumpTrips)) {
+                $lanePourStart = Carbon::parse($pumpTrips[0]['pouring_start']);
+                $lanePourEnd = Carbon::parse($pumpTrips[0]['pouring_end']);
+                $prevEnd = null;
+                foreach ($pumpTrips as $lt) {
+                    $ps = Carbon::parse($lt['pouring_start']);
+                    $pe = Carbon::parse($lt['pouring_end']);
+                    if ($ps->lt($lanePourStart)) {
+                        $lanePourStart = $ps->copy();
+                    }
+                    if ($pe->gt($lanePourEnd)) {
+                        $lanePourEnd = $pe->copy();
+                    }
+                    if ($prevEnd && $ps->gt($prevEnd)) {
+                        $laneIdleMins += $prevEnd->diffInMinutes($ps);
+                    }
+                    $prevEnd = $pe;
+                }
+            }
+            $laneStartWait = $lanePourStart->gt($groupPourStart) ? $groupPourStart->diffInMinutes($lanePourStart) : 0;
+            if ($laneStartWait > 0) {
+                $waitingStart = $waitingStart ?? $groupPourStart->copy();
+                $waitingEnd = $lanePourStart->copy()->subMinute();
+                $waitingTime += $laneStartWait;
+            }
+            self::schedLog()->info("[PUMP_LANE] order {$order->order_no} pump {$pumpName}: "
+                . count($pumpTrips) . " truck(s), pours " . $lanePourStart->format('H:i') . "–" . $lanePourEnd->format('H:i')
+                . ", waits {$laneStartWait} min before first truck, {$laneIdleMins} min idle between trucks");
+            $pouringTime = $lanePourStart->diffInMinutes($lanePourEnd);
+            $cleanStart = $lanePourEnd->copy()->addMinute();
             $cleanEnd = $cleanStart->copy()->addMinutes((int) $scheduleData->cleaning_time);
             $returnStart = $returnTime > 0 ? $cleanEnd->copy()->addMinute() : $cleanEnd->copy();
             $returnEnd = $returnTime > 0 ? $returnStart->copy()->addMinutes($returnTime) : $cleanEnd->copy();
+            // Busy slot keeps the full order window, as before, so pump availability
+            // for other orders is unchanged.
+            $groupCleanEnd = $groupPourEnd->copy()->addMinute()->addMinutes((int) $scheduleData->cleaning_time);
+            $groupReturnEnd = $returnTime > 0 ? $groupCleanEnd->copy()->addMinute()->addMinutes($returnTime) : $groupCleanEnd->copy();
+            $lanePump[$p] = ['name' => $pumpName, 'id' => $pumpId];
             $pump = Pump::find($pumpId);
             $trip = 0;
             $scheduleData->selected_order_pump_schedules[] = [
@@ -3268,11 +3312,11 @@ class ScheduleService
                 'install_time' => $installTime,
                 'install_start' => $installStart->copy(),
                 'install_end' => $installEnd->copy(),
-                'pouring_start' => $groupPourStart->copy(),
+                'pouring_start' => $lanePourStart->copy(),
                 'waiting_start' => $waitingStart,
                 'waiting_end' => $waitingEnd,
                 'waiting_time' => $waitingTime,
-                'pouring_end' => $groupPourEnd->copy(),
+                'pouring_end' => $lanePourEnd->copy(),
                 'pouring_time' => $pouringTime,
                 'cleaning_time' => (int) $scheduleData->cleaning_time,
                 'cleaning_start' => $cleanStart->copy(),
@@ -3293,7 +3337,7 @@ class ScheduleService
             ];
             $scheduleData->pump_busy_slots[] = [
                 'start' => $qcStart->copy(),
-                'end' => $returnEnd->copy(),
+                'end' => $groupReturnEnd->copy(),
                 'pump_id' => $pumpId,
                 'type' => $pump->type,
                 'capacity' => $pump->pump_capacity,
@@ -3301,7 +3345,7 @@ class ScheduleService
                 'order_no' => $order->order_no,
                 'pouring_start' => $groupPourStart->copy(),
                 'install_time' => $pump->installation_time,
-                'clean_ends' => $cleanEnd->copy(),
+                'clean_ends' => $groupCleanEnd->copy(),
                 'insp_starts' => $inspStart->copy(),
                 'interval' => $order->base_interval ?? $order->interval,
                 'waiting' => $scheduleData->pouring_pump['waiting'] ?? 0
@@ -3314,6 +3358,16 @@ class ScheduleService
                 $scheduleData->assigned_pumps[] = $pumpName;
             }
         }
+        // Record on every truck row which pump it pours into and its sequence on
+        // that pump. Every row gets the keys so the bulk insert stays consistent.
+        foreach ($scheduleData->schedules as &$truckRow) {
+            [$lane, $seq] = $tripLane[$truckRow['trip']] ?? [null, null];
+            $assigned = $lane !== null ? ($lanePump[$lane] ?? null) : null;
+            $truckRow['pump'] = $assigned['name'] ?? null;
+            $truckRow['pump_id'] = $assigned['id'] ?? null;
+            $truckRow['pump_trip'] = $assigned ? $seq : null;
+        }
+        unset($truckRow);
         $assignedPumpCount = count($scheduleData->selected_order_pump_schedules);
         if ($assignedPumpCount === 0) {
             return false;
