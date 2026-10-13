@@ -3891,7 +3891,11 @@ class ScheduleService
                 'standby_pump' => $standbyPump,
             ];
 
-            if ($isPump && $usedPump > 1) {
+            // Recompute for every multi-pump request, including when the plants only
+            // allow one pump this run — otherwise a 2-pump expected_duration/max_delay
+            // from an earlier run with more plants is kept and the 1-pump pour is
+            // judged against it (e.g. 645 m³ order rejected on one plant).
+            if ($isPump && $pumpQty > 1) {
                 $expected = $this->computeExpectedDuration($order, $usedPump);
                 $maxDelay = $this->computeMaxDelay($expected, (bool) $order->flexibility);
                 $update['expected_duration'] = $expected;
@@ -3937,7 +3941,7 @@ class ScheduleService
         $customerInterval = (int) ($order->interval ?? 0);
         $interval = ($hasPump && $usedPump > 1)
             ? max($effPouring, $customerInterval)
-            : (int) ($order->base_interval ?? 0);
+            : (int) ($order->base_interval ?? $pouringTime);
 
         $lastTripQty     = $quantity - ($batchSize * ($numTrips - 1));
         $lastPouringTime = ($lastTripQty < $batchSize)

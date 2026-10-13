@@ -1784,7 +1784,11 @@ class OrderController extends Controller
             $pouringTime = 0;
             $totalPumpQty = 0;
             if ($request->is_pump_required && $request->is_pump_required == "on") {
-                $pouringTime = $structureReference?->pouring_w_pump_time;
+                // The scheduler only treats the order as a pump order when a pump size is
+                // chosen (orders.pump = pump_sizes[0]), so match the pouring time to that.
+                $pouringTime = (float) ($request->pump_sizes[0] ?? 0) > 0
+                    ? $structureReference?->pouring_w_pump_time
+                    : $structureReference?->pouring_wo_pump_time;
                 foreach ($request->no_of_pumps as $key => $pumpQty) {
                     $totalPumpQty += $pumpQty;
                 }
@@ -2021,7 +2025,11 @@ class OrderController extends Controller
             $pouringTime = 0;
             $totalPumpQty = 0;
             if ($request->is_pump_required && $request->is_pump_required == "on") {
-                $pouringTime = $structureReference?->pouring_w_pump_time;
+                // The scheduler only treats the order as a pump order when a pump size is
+                // chosen (orders.pump = pump_sizes[0]), so match the pouring time to that.
+                $pouringTime = (float) ($request->pump_sizes[0] ?? 0) > 0
+                    ? $structureReference?->pouring_w_pump_time
+                    : $structureReference?->pouring_wo_pump_time;
                 foreach ($request->no_of_pumps as $key => $pumpQty) {
                     $totalPumpQty += $pumpQty;
                 }

@@ -620,6 +620,8 @@ class Order
                 ],[
                     'interval.min'=>'The interval field  greater than 0 min.',
                     'interval.max'=>'The interval field less than 40 mins.',
+                    'pump_sizes.*.gt'=>'Please select the pump size.',
+                    'pump_types.*.not_in'=>'Please select the pump type.',
 
                 ]
         );
@@ -632,11 +634,16 @@ class Order
             return $input -> is_cube_mould_required == "on";
         });
 
-        $validator -> sometimes([ 'no_of_pumps.*', 'pump_sizes.*'], 'required|numeric', function (Fluent $input) {
+        $validator -> sometimes([ 'no_of_pumps.*'], 'required|numeric', function (Fluent $input) {
             return $input -> is_pump_required == "on";
         });
 
-        $validator -> sometimes(['pump_types.*'], 'required|string', function (Fluent $input) {
+        // The dropdowns post "0" when nothing is picked, so "required" alone lets it through.
+        $validator -> sometimes([ 'pump_sizes.*'], 'required|numeric|gt:0', function (Fluent $input) {
+            return $input -> is_pump_required == "on";
+        });
+
+        $validator -> sometimes(['pump_types.*'], 'required|string|not_in:0', function (Fluent $input) {
             return $input -> is_pump_required == "on";
         });
         $projectSite = CustomerProjectSite::find($this ->request -> site_id);
