@@ -852,6 +852,17 @@ class ScheduleService
                 continue;
             }
             if ($search['okDelay'] === null) {
+                // Postponing could not fit it on the open plant(s). If a plant is
+                // still closed, open it and restart from LPI #1 instead of
+                // rejecting the order while a plant sits idle (<= 500 m³ runs
+                // only open on a hard reject otherwise).
+                if ($scheduleData->consolidated_single_plant
+                    && (int) $scheduleData->opened_plant_count < (int) $scheduleData->max_plant_count) {
+                    $this->openOneMorePlant($scheduleData, $pristine, $candidate, "could not fit after postponing up to +{$maxDelay} min");
+                    [$allOrders, $allTrips, $candidatesList, $candidateIdx, $committed, $rejected, $committedDelays, $committedTimes] =
+                        $this->restartAfterPlantExpansion($scheduleData, $allOrders, $allTrips, $candidate, $committed, '(postpone limit reached)');
+                    continue;
+                }
                 // Never committed — drop any expansion pin so it cannot leak.
                 unset($this->pinnedPlant[$candidate->order_no]);
                 $rejected[$candidate->id] = $search['candidateReasonSeen']
@@ -1301,40 +1312,7 @@ class ScheduleService
         $hasRoomToOpen = (int) $scheduleData->opened_plant_count < (int) $scheduleData->max_plant_count;
 
         if ($expandTrigger && $scheduleData->consolidated_single_plant && $hasRoomToOpen) {
-            $from = (int) $scheduleData->opened_plant_count;
-            $to   = $from + 1;
-
-            self::schedLog()->info("[PLANT_EXPAND] candidate {$candidate->order_no} hit a {$triggerLabel} "
-                . "with {$from} plant(s) open — opening one more ({$from} → {$to} of "
-                . "{$scheduleData->max_plant_count}); the run will restart fresh on the wider fleet.");
-
-            $widened = $this->firstNDistinctPlants($scheduleData->bps_availability_full, $to);
-
-            // ── Send the candidate to the plant that was just opened FOR it ───
-            // The expansion happens precisely because this candidate did not fit
-            // on the plant(s) already open. Without a pin, predictBestPlant()
-            // re-scores on the retry and sends it straight back to the crowded
-            // plant — the new plant stays empty and the expansion achieves nothing.
-            // It picks the crowded plant because existingLoad only counts trips
-            // ALREADY placed in this pass: committed orders that pour later in the
-            // day are invisible, so a plant holding several commitments still
-            // scores as empty and wins the tie on array order.
-            $plantsBefore = array_values(array_unique(array_column($scheduleData->bps_availability, 'plant_name')));
-            $plantsAfter  = array_values(array_unique(array_column($widened, 'plant_name')));
-            $justOpened   = array_values(array_diff($plantsAfter, $plantsBefore));
-            if (!empty($justOpened)) {
-                $this->pinnedPlant[$candidate->order_no] = $justOpened[0];
-                self::schedLog()->info("[PLANT_PIN] candidate {$candidate->order_no} pinned to the newly "
-                    . "opened plant {$justOpened[0]} — the expansion was opened for this candidate, so it "
-                    . "must not fall back onto the crowded plant(s) [" . implode(', ', $plantsBefore) . "].");
-            }
-
-            // Apply to BOTH the live state and the baseline so the wider fleet
-            // persists across the caller's restart-from-fresh.
-            $scheduleData->opened_plant_count        = $to;
-            $scheduleData->bps_availability           = $widened;
-            $scheduleData->consolidated_single_plant  = ($to < (int) $scheduleData->max_plant_count);
-            $pristine['bps_availability']             = $widened;
+            $this->openOneMorePlant($scheduleData, $pristine, $candidate, "hit a {$triggerLabel}");
             $expanded = true;
             // Do NOT reschedule here — the caller restarts the whole pass.
         } elseif ($expandTrigger && !$hasRoomToOpen) {
@@ -3836,6 +3814,49 @@ class ScheduleService
     }
 
     /**
+     * Open one more plant (the next distinct plant in the full fleet) for a
+     * candidate that did not fit, on both the live state and the baseline so
+     * the wider fleet survives the caller's restart from LPI #1.
+     */
+    private function openOneMorePlant(ScheduleData &$scheduleData, array &$pristine, $candidate, string $why): void
+    {
+        $from = (int) $scheduleData->opened_plant_count;
+        $to   = $from + 1;
+
+        self::schedLog()->info("[PLANT_EXPAND] candidate {$candidate->order_no} {$why} "
+            . "with {$from} plant(s) open — opening one more ({$from} → {$to} of "
+            . "{$scheduleData->max_plant_count}); the run will restart fresh on the wider fleet.");
+
+        $widened = $this->firstNDistinctPlants($scheduleData->bps_availability_full, $to);
+
+        // ── Send the candidate to the plant that was just opened FOR it ───
+        // The expansion happens precisely because this candidate did not fit
+        // on the plant(s) already open. Without a pin, predictBestPlant()
+        // re-scores on the retry and sends it straight back to the crowded
+        // plant — the new plant stays empty and the expansion achieves nothing.
+        // It picks the crowded plant because existingLoad only counts trips
+        // ALREADY placed in this pass: committed orders that pour later in the
+        // day are invisible, so a plant holding several commitments still
+        // scores as empty and wins the tie on array order.
+        $plantsBefore = array_values(array_unique(array_column($scheduleData->bps_availability, 'plant_name')));
+        $plantsAfter  = array_values(array_unique(array_column($widened, 'plant_name')));
+        $justOpened   = array_values(array_diff($plantsAfter, $plantsBefore));
+        if (!empty($justOpened)) {
+            $this->pinnedPlant[$candidate->order_no] = $justOpened[0];
+            self::schedLog()->info("[PLANT_PIN] candidate {$candidate->order_no} pinned to the newly "
+                . "opened plant {$justOpened[0]} — the expansion was opened for this candidate, so it "
+                . "must not fall back onto the crowded plant(s) [" . implode(', ', $plantsBefore) . "].");
+        }
+
+        // Apply to BOTH the live state and the baseline so the wider fleet
+        // persists across the caller's restart-from-fresh.
+        $scheduleData->opened_plant_count        = $to;
+        $scheduleData->bps_availability           = $widened;
+        $scheduleData->consolidated_single_plant  = ($to < (int) $scheduleData->max_plant_count);
+        $pristine['bps_availability']             = $widened;
+    }
+
+    /**
      * Return the bps_availability rows belonging to the first $n DISTINCT plants
      * (by plant_name, in their existing order). Used to open a bounded subset of
      * the fleet: a plant can have several free-window rows, so we filter by name
@@ -4010,15 +4031,13 @@ class ScheduleService
 
     /**
      * max_delay from expected_duration. Mirrors OrderController::setMaxDelay:
-     * base = ceil(expected_duration / 3); flexible floors it at 60, non-flexible
-     * caps it at 60.
+     * flexible = ceil(expected_duration / 3), at least 60; non-flexible = 60.
      */
     private function computeMaxDelay(int $expectedDuration, bool $isFlexible): int
     {
-        $maxDelayMins = max(1, (int) ceil($expectedDuration / 3));
         return $isFlexible
-            ? max($maxDelayMins, 60)
-            : min($maxDelayMins, 60);
+            ? max(1, (int) ceil($expectedDuration / 3), 60)
+            : 60;
     }
 
     /**
