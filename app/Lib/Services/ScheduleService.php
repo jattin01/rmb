@@ -831,7 +831,8 @@ class ScheduleService
                 (int) ($o['cleanImpact']['total'] ?? 0),
                 (int) $o['best'],
                 (int) ($o['cleanTimes'][(string) $candidate->order_no]['stretch'] ?? 0),
-                $strictSearch
+                $strictSearch,
+                (int) ($o['cleanImpact']['topLpi'] ?? PHP_INT_MAX)
             );
             foreach ($plantsToTry as $plant) {
                 $limit = $maxDelay;
@@ -1147,7 +1148,8 @@ class ScheduleService
     private function plantRank(array $res, $candidate, bool $strict): ?array
     {
         $p = $this->plantParts($res, $candidate);
-        return $p === null ? null : $this->allocationRank($p[0], $p[1], $p[2], $strict);
+        return $p === null ? null
+            : $this->allocationRank($p[0], $p[1], $p[2], $strict, (int) ($res['impact']['topLpi'] ?? PHP_INT_MAX));
     }
 
     /**
@@ -1157,10 +1159,15 @@ class ScheduleService
      * a higher LPI only when its extra wait is no more than the delay it saves.
      * Strict (the 2nd order in a > 500 m³ run): no delay to the higher LPI
      * comes first, whatever the wait.
+     * Last tie-break (LPI priority): when two options are otherwise equal,
+     * delay the lower-priority order — e.g. LPI 3 overlaps LPI 2, not LPI 1.
      */
-    private function allocationRank(int $impact, int $late, int $stretch, bool $strict): array
+    private function allocationRank(int $impact, int $late, int $stretch, bool $strict, int $topLpi = PHP_INT_MAX): array
     {
-        return $strict ? [$impact, $late, $stretch] : [$impact + $late, $impact, $stretch];
+        $lpiTie = $impact > 0 ? -$topLpi : PHP_INT_MIN;
+        return $strict
+            ? [$impact, $late, $lpiTie, $stretch]
+            : [$impact + $late, $impact, $lpiTie, $stretch];
     }
 
     /** The 2nd order of a > 500 m³ run must not delay the 1st at all. */
@@ -1201,7 +1208,7 @@ class ScheduleService
 
         // Single-plant orders only (that is where a plant is chosen). A perfect
         // result (on time, no extra pour time) cannot be beaten.
-        if ($predicted === null || $rank === [0, 0, 0]) {
+        if ($predicted === null || $rank === $this->allocationRank(0, 0, 0, $strict)) {
             return ['res' => $res, 'plantChoice' => $plantChoice];
         }
 
@@ -1237,7 +1244,7 @@ class ScheduleService
 
             if ($rRank !== null && ($best['rank'] === null || $rRank < $best['rank'])) {
                 $best = ['res' => $r, 'plantChoice' => $this->passPlantChoice, 'plant' => $plant, 'rank' => $rRank];
-                if ($rRank === [0, 0, 0]) {
+                if ($rRank === $this->allocationRank(0, 0, 0, $strict)) {
                     break; // perfect — cannot do better
                 }
             }
@@ -1434,7 +1441,7 @@ class ScheduleService
         // flexible orders may share delay; a non-flexible order must keep its
         // cycle, so delaying one is treated like a push — the candidate waits.
         $impact = $expanded
-            ? ['total' => 0, 'flex' => 0, 'nonFlex' => 0, 'orders' => []]
+            ? ['total' => 0, 'flex' => 0, 'nonFlex' => 0, 'orders' => [], 'topLpi' => PHP_INT_MAX]
             : $this->committedDelayImpact($times, $committedTimes, $candidate, $testTrips, $testOrders);
         if ($impact['nonFlex'] > 0) {
             $nonFlexNos = $testOrders->filter(fn($o) => !$o->flexibility)->pluck('order_no')->map(fn($n) => (string) $n)->all();
@@ -1561,11 +1568,13 @@ class ScheduleService
      * it was accepted (its intervals got longer). Zero means the candidate fits
      * in the free loading time (a "clash"); anything above zero is an "overlap".
      *
-     * @return array{total:int, flex:int, nonFlex:int, orders:array<string,int>}
+     * topLpi = LPI sequence of the highest-priority order it delays.
+     *
+     * @return array{total:int, flex:int, nonFlex:int, orders:array<string,int>, topLpi:int}
      */
     private function committedDelayImpact(array $times, array $committedTimes, $candidate, array $testTrips, $testOrders): array
     {
-        $out = ['total' => 0, 'flex' => 0, 'nonFlex' => 0, 'orders' => []];
+        $out = ['total' => 0, 'flex' => 0, 'nonFlex' => 0, 'orders' => [], 'topLpi' => PHP_INT_MAX];
         $windows = [];
         foreach ($testTrips as $t) {
             $no = (string) $t['order_no'];
@@ -1577,6 +1586,7 @@ class ScheduleService
         $candNo = (string) $candidate->order_no;
         $cand   = $windows[$candNo] ?? null;
         $flexByNo = $testOrders->mapWithKeys(fn($o) => [(string) $o->order_no => (bool) $o->flexibility])->all();
+        $seqByNo  = $testOrders->mapWithKeys(fn($o) => [(string) $o->order_no => $this->lpiSequence($o)])->all();
 
         foreach ($committedTimes as $orderNo => $accepted) {
             $orderNo = (string) $orderNo;
@@ -1595,6 +1605,7 @@ class ScheduleService
             }
             $out['orders'][$orderNo] = $extra;
             $out['total'] += $extra;
+            $out['topLpi'] = min($out['topLpi'], (int) ($seqByNo[$orderNo] ?? PHP_INT_MAX));
             if ($flexByNo[$orderNo] ?? true) {
                 $out['flex'] += $extra;
             } else {
