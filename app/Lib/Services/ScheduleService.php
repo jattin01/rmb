@@ -4283,8 +4283,12 @@ class ScheduleService
                     . "pump_qty={$pumpQty} used_pump={$usedPump} standby={$standbyPump} "
                     . "→ expected_duration={$expected} max_delay={$maxDelay}");
             } else {
+                // Re-apply the 75% rule to the stored expected_duration, so orders
+                // saved in step 2 under an older max_delay rule follow it too.
+                $maxDelay = $this->computeMaxDelay((int) ($order->expected_duration ?? 0), (bool) $order->flexibility);
+                $update['max_delay'] = $maxDelay;
                 self::schedLog()->info("[PUMP_DUR] Order {$order->order_no}: used_pump={$usedPump} "
-                    . "standby={$standbyPump} (no duration change)");
+                    . "standby={$standbyPump} (no duration change) max_delay={$maxDelay}");
             }
 
             try {
@@ -4334,14 +4338,13 @@ class ScheduleService
     }
 
     /**
-     * max_delay from expected_duration. Mirrors OrderController::setMaxDelay:
-     * flexible = ceil(expected_duration / 3), at least 60; non-flexible = 60.
+     * max_delay from expected_duration — the 75% productivity rule, see
+     * OrderController::maxDelayFor() (flexible: expected / 3; non-flexible:
+     * also at most 60 min).
      */
     private function computeMaxDelay(int $expectedDuration, bool $isFlexible): int
     {
-        return $isFlexible
-            ? max(1, (int) ceil($expectedDuration / 3), 60)
-            : 60;
+        return \App\Http\Controllers\OrderController::maxDelayFor($expectedDuration, $isFlexible);
     }
 
     /**

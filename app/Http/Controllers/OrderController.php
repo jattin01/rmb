@@ -2584,25 +2584,20 @@ class OrderController extends Controller
     }
     private function setMaxDelay(SelectedOrder $order)
     {
-        $isFlexible = (bool) $order->flexibility;
+        return self::maxDelayFor((int) ($order->expected_duration ?? 0), (bool) $order->flexibility);
+    }
 
-        if ($isFlexible) {
-            // ── Client feedback (3.3-3.9): ────────────────────────────────
-            // "Small order should not go beyond the 45 minute gap"
-            // Applies to ALL flexible orders — the interval gap cap is 45 min
-            $expectedDuration = (int) ($order->expected_duration ?? 0);
-            $maxDelayMins = max(1, (int) ceil($expectedDuration / 3));
-            $maxDelayMins = max($maxDelayMins, 60);
-        } else {
-            // ── Client feedback (3.2): ────────────────────────────────────
-            // "Not to go less than 75% of big order productivity"
-            // 75% productivity = 25% delay allowed of expected_duration
-            $expectedDuration = (int) ($order->expected_duration ?? 0);
-            $maxDelayMins = max(1, (int) ceil($expectedDuration / 3));
-            $maxDelayMins = 60;
-        }
-
-        return $maxDelayMins;
+    /**
+     * Agreed rule (16 June scheduling logic, section 3): every order keeps at
+     * least 75% productivity, i.e. actual ≤ expected / 0.75, so the delay may
+     * be at most expected / 3 (rounded down so it never drops below 75%).
+     * Flexible orders have no other cap; non-flexible orders are also capped
+     * at 60 minutes. ScheduleService::computeMaxDelay() mirrors this.
+     */
+    public static function maxDelayFor(int $expectedDuration, bool $isFlexible): int
+    {
+        $maxDelayMins = max(1, intdiv(max(0, $expectedDuration), 3));
+        return $isFlexible ? $maxDelayMins : min($maxDelayMins, 60);
     }
 
     public function exportSchedule(Request $request)
