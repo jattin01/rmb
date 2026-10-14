@@ -246,6 +246,10 @@ class ScheduleService
     // Highest progress % written for the current run (monotonic; never goes back).
     private int $lastProgress = 0;
 
+    // Minutes each order's trips waited for a truck / plant / pump in the last
+    // scheduling pass. Used to name the real cause in a rejection message.
+    private array $passBlockMins = [];
+
     public function __construct()
     {
         ini_set('max_execution_time', '-1');
@@ -754,20 +758,50 @@ class ScheduleService
                     $this->restartAfterPlantExpansion($scheduleData, $allOrders, $allTrips, $candidate, $committed, '(opened while comparing plants)');
                 continue;
             }
+
+            // Agreed allocation logic (> 500 m³): a lower LPI that cannot fit in
+            // the free loading time — it would delay a higher LPI (longer
+            // intervals) or make it start later — is an OVERLAP. While a plant is
+            // still closed, open it for the lower LPI instead of sharing delay.
+            $overlapMins = (int) ($res['impact']['total'] ?? 0);
+            if ($scheduleData->divide_mode
+                && $scheduleData->consolidated_single_plant
+                && (int) $scheduleData->opened_plant_count < (int) $scheduleData->max_plant_count
+                && !$res['candidateRejected']
+                && ($overlapMins > 0 || !empty($res['pushed']))) {
+                $this->openOneMorePlant($scheduleData, $pristine, $candidate,
+                    "overlaps a higher-LPI order (+{$overlapMins} min delay"
+                    . (!empty($res['pushed']) ? ", " . $res['pushed'][0]['reason'] : "") . ")");
+                [$allOrders, $allTrips, $candidatesList, $candidateIdx, $committed, $rejected, $committedDelays, $committedTimes] =
+                    $this->restartAfterPlantExpansion($scheduleData, $allOrders, $allTrips, $candidate, $committed, '(overlap with a higher LPI)');
+                continue;
+            }
             $scope = "on the available plant(s)";
 
             if ($res['candidateRejected']) {
-                $rejected[$candidate->id] = $res['candidateReason']
-                    ?? "This order could not be scheduled because all available plants are at full capacity.";
+                $rejected[$candidate->id] = $this->explainRejection($scheduleData, $candidate, $res['candidateReason']
+                    ?? "This order could not be scheduled because all available plants are at full capacity.");
                 self::schedLog()->info("[INCR_SCHED] ✗ {$candidate->order_no} rejected — appeared in rejectedOrders {$scope} "
                     . "— a delay cannot help; committed set unchanged");
                 $candidateIdx++;
                 continue;
             }
             if (empty($res['partials'])) {
+                $shared = $this->shareDelayWithFlexible(
+                    $scheduleData, $pristine, $allTrips, $testOrders, $testOrderNos, $candidate,
+                    $committedDelays, $committedTimes, 0, $res, $pick['plantChoice']
+                );
+                if ($shared['expanded']) {
+                    [$allOrders, $allTrips, $candidatesList, $candidateIdx, $committed, $rejected, $committedDelays, $committedTimes] =
+                        $this->restartAfterPlantExpansion($scheduleData, $allOrders, $allTrips, $candidate, $committed, '(opened while sharing delay)');
+                    continue;
+                }
+                if ($shared['delay'] > 0) {
+                    $committedDelays[$candidate->order_no] = $shared['delay'];
+                }
                 $committed = $testOrders;
-                $committedTimes = $res['times'];
-                $this->pinCommittedPlants($committed, $pick['plantChoice']);
+                $committedTimes = $shared['times'];
+                $this->pinCommittedPlants($committed, $shared['plantChoice']);
                 self::schedLog()->info("[INCR_SCHED] ✓ {$candidate->order_no} accepted "
                     . "(committed now " . $committed->count() . " order(s))");
                 $candidateIdx++;
@@ -792,11 +826,22 @@ class ScheduleService
             $searchPlant = null;
             $perPlant = [];
             $expandedWhen = null;
+            $strictSearch = $this->strictOverlap($scheduleData, $candidate);
+            $rankOf = fn($o) => $this->allocationRank(
+                (int) ($o['cleanImpact']['total'] ?? 0),
+                (int) $o['best'],
+                (int) ($o['cleanTimes'][(string) $candidate->order_no]['stretch'] ?? 0),
+                $strictSearch
+            );
             foreach ($plantsToTry as $plant) {
                 $limit = $maxDelay;
                 if ($search !== null && $search['okDelay'] !== null) {
-                    // Only a smaller delay (or the same delay with less extra pour) can win.
-                    $limit = $search['best'];
+                    // A plant needing a start delay above the best rank's total
+                    // (its postponement + delay to higher LPIs) cannot win.
+                    $bestImpact = (int) ($search['cleanImpact']['total'] ?? 0);
+                    $limit = $strictSearch
+                        ? ($bestImpact > 0 ? $maxDelay : (int) $search['best'])
+                        : min($maxDelay, (int) $search['best'] + $bestImpact);
                 }
                 if ($plant !== null) {
                     $this->pinnedPlant[$candidate->order_no] = $plant;
@@ -813,13 +858,13 @@ class ScheduleService
                 }
                 $perPlant[] = ($plant ?? 'predicted') . ': '
                     . ($out['okDelay'] !== null
-                        ? "+{$out['best']} min (extra pour " . (int) ($out['cleanTimes'][(string) $candidate->order_no]['stretch'] ?? 0) . " min)"
+                        ? "+{$out['best']} min (extra pour " . (int) ($out['cleanTimes'][(string) $candidate->order_no]['stretch'] ?? 0)
+                            . " min, delays higher LPIs " . (int) ($out['cleanImpact']['total'] ?? 0) . " min)"
                         : ($out['rejectedAt'] !== null ? 'rejected' : 'no delay works'));
 
-                $stretchOf = fn($o) => (int) ($o['cleanTimes'][(string) $candidate->order_no]['stretch'] ?? 0);
                 if ($search === null
                     || ($out['okDelay'] !== null && ($search['okDelay'] === null
-                        || [$out['best'], $stretchOf($out)] < [$search['best'], $stretchOf($search)]))) {
+                        || $rankOf($out) < $rankOf($search)))) {
                     // Keep the better outcome; never replace a working delay with a failing one.
                     if ($search === null || $out['okDelay'] !== null) {
                         $search = $out;
@@ -844,8 +889,8 @@ class ScheduleService
             $probes = $search['probes'];
             $refine = $search['refine'];
             if ($search['okDelay'] === null && $search['rejectedAt'] !== null) {
-                $rejected[$candidate->id] = $search['rejectedAt']['candidateReason']
-                    ?? "This order could not be scheduled because all available plants are at full capacity.";
+                $rejected[$candidate->id] = $this->explainRejection($scheduleData, $candidate, $search['rejectedAt']['candidateReason']
+                    ?? "This order could not be scheduled because all available plants are at full capacity.");
                 self::schedLog()->info("[INCR_SCHED] ✗ {$candidate->order_no} rejected — appeared in rejectedOrders "
                     . "while probing delays ({$probes} probe(s)); committed set unchanged");
                 $candidateIdx++;
@@ -865,18 +910,29 @@ class ScheduleService
                 }
                 // Never committed — drop any expansion pin so it cannot leak.
                 unset($this->pinnedPlant[$candidate->order_no]);
-                $rejected[$candidate->id] = $search['candidateReasonSeen']
+                $rejected[$candidate->id] = $this->explainRejection($scheduleData, $candidate, $search['candidateReasonSeen']
                     ?: ($search['pushReasonSeen'] !== null
                         ? "This order could not be scheduled without delaying a higher-LPI order. {$search['pushReasonSeen']}."
-                        : "This order could not be scheduled because all available plants are at full capacity.");
+                        : "This order could not be scheduled because all available plants are at full capacity."));
                 self::schedLog()->info("[INCR_SCHED] ✗ {$candidate->order_no} rejected — no delay up to "
                     . "+{$maxDelay} min cleared the partials ({$probes} probe(s)); committed set unchanged");
                 $candidateIdx++;
                 continue;
             }
-            $best             = $search['best'];
-            $cleanTimes       = $search['cleanTimes'];
-            $cleanPlantChoice = $search['cleanPlantChoice'];
+            $shared = $this->shareDelayWithFlexible(
+                $scheduleData, $pristine, $allTrips, $testOrders, $testOrderNos, $candidate, $committedDelays,
+                $committedTimes, (int) $search['best'],
+                ['times' => $search['cleanTimes'], 'impact' => $search['cleanImpact'] ?? []],
+                $search['cleanPlantChoice']
+            );
+            if ($shared['expanded']) {
+                [$allOrders, $allTrips, $candidatesList, $candidateIdx, $committed, $rejected, $committedDelays, $committedTimes] =
+                    $this->restartAfterPlantExpansion($scheduleData, $allOrders, $allTrips, $candidate, $committed, '(opened while sharing delay)');
+                continue;
+            }
+            $best             = $shared['delay'];
+            $cleanTimes       = $shared['times'];
+            $cleanPlantChoice = $shared['plantChoice'];
 
             $committed = $testOrders;
             $committedTimes = $cleanTimes;
@@ -956,7 +1012,7 @@ class ScheduleService
     ): array {
         $out = [
             'expanded' => false, 'expandWhen' => null, 'rejectedAt' => null, 'okDelay' => null, 'best' => null,
-            'cleanPlantChoice' => [], 'cleanTimes' => [], 'probes' => 0, 'refine' => 0,
+            'cleanPlantChoice' => [], 'cleanTimes' => [], 'cleanImpact' => [], 'probes' => 0, 'refine' => 0,
             'candidateReasonSeen' => $this->candidatePartialReason($res['partials'], $candidate),
             'pushReasonSeen' => !empty($res['pushed']) ? $res['pushed'][0]['reason'] : null,
         ];
@@ -994,6 +1050,7 @@ class ScheduleService
                 $out['okDelay'] = $delay;
                 $out['cleanPlantChoice'] = $this->passPlantChoice;
                 $out['cleanTimes'] = $r['times'];
+                $out['cleanImpact'] = $r['impact'] ?? [];
                 self::schedLog()->info("[INCR_DELAY] probe +{$delay} min → clean (0 partials); "
                     . "bracketed a working delay, refining toward the minimum.");
                 break;
@@ -1019,6 +1076,7 @@ class ScheduleService
                 $out['okDelay'] = $maxDelay;
                 $out['cleanPlantChoice'] = $this->passPlantChoice;
                 $out['cleanTimes'] = $r['times'];
+                $out['cleanImpact'] = $r['impact'] ?? [];
                 self::schedLog()->info("[INCR_DELAY] probe +{$maxDelay} min (cap) → clean (0 partials).");
             } else {
                 $lastFail = $maxDelay;
@@ -1045,6 +1103,7 @@ class ScheduleService
                 $hi = $mid;
                 $out['cleanPlantChoice'] = $this->passPlantChoice;
                 $out['cleanTimes'] = $r['times'];
+                $out['cleanImpact'] = $r['impact'] ?? [];
                 self::schedLog()->info("[INCR_DELAY] refine +{$mid} min → clean; trying smaller.");
             } else {
                 $lo = $mid;
@@ -1068,16 +1127,46 @@ class ScheduleService
     }
 
     /**
-     * Rank a clean pass result for plant choice: earliest first-trip start
-     * first, then least extra pour time (fewer waits between trips).
+     * [delay added to higher-LPI orders, candidate's start delay, candidate's
+     * extra pour] for a clean pass result, or null when it has no start.
      */
-    private function plantRank(array $res, $candidate): ?array
+    private function plantParts(array $res, $candidate): ?array
     {
         $late = $this->candidateLateMinutes($res, $candidate);
         if ($late === null) {
             return null;
         }
-        return [$late, (int) ($res['times'][(string) $candidate->order_no]['stretch'] ?? 0)];
+        return [
+            (int) ($res['impact']['total'] ?? 0),
+            $late,
+            (int) ($res['times'][(string) $candidate->order_no]['stretch'] ?? 0),
+        ];
+    }
+
+    /** Plant-choice rank of a clean pass result (see allocationRank()). */
+    private function plantRank(array $res, $candidate, bool $strict): ?array
+    {
+        $p = $this->plantParts($res, $candidate);
+        return $p === null ? null : $this->allocationRank($p[0], $p[1], $p[2], $strict);
+    }
+
+    /**
+     * Rank used to compare plants / start delays for a lower-LPI order (smaller
+     * wins). Balanced (default): delay to higher LPIs + own postponement, ties
+     * to the option that delays higher LPIs less — so the order moves away from
+     * a higher LPI only when its extra wait is no more than the delay it saves.
+     * Strict (the 2nd order in a > 500 m³ run): no delay to the higher LPI
+     * comes first, whatever the wait.
+     */
+    private function allocationRank(int $impact, int $late, int $stretch, bool $strict): array
+    {
+        return $strict ? [$impact, $late, $stretch] : [$impact + $late, $impact, $stretch];
+    }
+
+    /** The 2nd order of a > 500 m³ run must not delay the 1st at all. */
+    private function strictOverlap(ScheduleData $scheduleData, $candidate): bool
+    {
+        return (bool) $scheduleData->divide_mode && $this->lpiSequence($candidate) === 2;
     }
 
     /**
@@ -1105,18 +1194,20 @@ class ScheduleService
         $plantChoice = $this->passPlantChoice;
         $predicted   = $plantChoice[$candidate->order_no] ?? null;
         $isClean     = !$res['candidateRejected'] && empty($res['partials']);
-        $rank        = $isClean ? $this->plantRank($res, $candidate) : null;
-        $describe    = fn(?array $k) => $k === null ? 'does not fit' : "start +{$k[0]} min, extra pour {$k[1]} min";
+        $strict      = $this->strictOverlap($scheduleData, $candidate);
+        $rank        = $isClean ? $this->plantRank($res, $candidate, $strict) : null;
+        $describe    = fn(?array $k) => $k === null ? 'does not fit' : "delays higher LPIs {$k[0]} min, start +{$k[1]} min, extra pour {$k[2]} min";
+        $parts       = fn(array $r, bool $ok) => $ok ? $this->plantParts($r, $candidate) : null;
 
         // Single-plant orders only (that is where a plant is chosen). A perfect
         // result (on time, no extra pour time) cannot be beaten.
-        if ($predicted === null || $rank === [0, 0]) {
+        if ($predicted === null || $rank === [0, 0, 0]) {
             return ['res' => $res, 'plantChoice' => $plantChoice];
         }
 
         $plants = array_values(array_unique(array_column($scheduleData->bps_availability ?? [], 'plant_name')));
         $best = ['res' => $res, 'plantChoice' => $plantChoice, 'plant' => $predicted, 'rank' => $rank];
-        $tried = ["{$predicted}: " . $describe($rank)];
+        $tried = ["{$predicted}: " . $describe($parts($res, $isClean))];
 
         foreach ($plants as $plant) {
             if ($plant === $predicted) {
@@ -1141,13 +1232,12 @@ class ScheduleService
                 return ['res' => $r, 'plantChoice' => $this->passPlantChoice];
             }
             $clean = !$r['candidateRejected'] && empty($r['partials']);
-            $rRank = $clean ? $this->plantRank($r, $candidate) : null;
-            $tried[] = "{$plant}: " . $describe($rRank);
+            $rRank = $clean ? $this->plantRank($r, $candidate, $strict) : null;
+            $tried[] = "{$plant}: " . $describe($parts($r, $clean));
 
-            // [start delay, extra pour] compared in that order.
             if ($rRank !== null && ($best['rank'] === null || $rRank < $best['rank'])) {
                 $best = ['res' => $r, 'plantChoice' => $this->passPlantChoice, 'plant' => $plant, 'rank' => $rRank];
-                if ($rRank === [0, 0]) {
+                if ($rRank === [0, 0, 0]) {
                     break; // perfect — cannot do better
                 }
             }
@@ -1340,6 +1430,32 @@ class ScheduleService
             $partials[] = $p;
         }
 
+        // Delay the candidate adds to accepted orders (longer intervals). Only
+        // flexible orders may share delay; a non-flexible order must keep its
+        // cycle, so delaying one is treated like a push — the candidate waits.
+        $impact = $expanded
+            ? ['total' => 0, 'flex' => 0, 'nonFlex' => 0, 'orders' => []]
+            : $this->committedDelayImpact($times, $committedTimes, $candidate, $testTrips, $testOrders);
+        if ($impact['nonFlex'] > 0) {
+            $nonFlexNos = $testOrders->filter(fn($o) => !$o->flexibility)->pluck('order_no')->map(fn($n) => (string) $n)->all();
+            foreach ($impact['orders'] as $orderNo => $mins) {
+                if (!in_array((string) $orderNo, $nonFlexNos, true)) {
+                    continue;
+                }
+                self::schedLog()->info("[NONFLEX_PROTECT] candidate {$candidate->order_no} at +{$delayMinutes} min "
+                    . "would add {$mins} min delay to non-flexible order {$orderNo} — not allowed, the candidate must wait.");
+                $p = [
+                    'id'             => null,
+                    'order_no'       => (string) $orderNo,
+                    'pushed_by'      => $candidate->order_no,
+                    'failure_reason' => '',
+                    'reason'         => "Would add {$mins} min delay to non-flexible order {$orderNo}",
+                ];
+                $pushed[]   = $p;
+                $partials[] = $p;
+            }
+        }
+
         return [
             'partials'          => $partials,
             'rejectedOrders'    => $rejectedOrders,
@@ -1348,6 +1464,7 @@ class ScheduleService
             'expanded'          => $expanded,
             'times'             => $times,
             'pushed'            => $pushed,
+            'impact'            => $impact,
         ];
     }
 
@@ -1438,6 +1555,55 @@ class ScheduleService
         return $pushed;
     }
 
+    /**
+     * Delay this pass adds to already-accepted orders that run at the same time
+     * as the candidate: how much later each one now finishes pouring than when
+     * it was accepted (its intervals got longer). Zero means the candidate fits
+     * in the free loading time (a "clash"); anything above zero is an "overlap".
+     *
+     * @return array{total:int, flex:int, nonFlex:int, orders:array<string,int>}
+     */
+    private function committedDelayImpact(array $times, array $committedTimes, $candidate, array $testTrips, $testOrders): array
+    {
+        $out = ['total' => 0, 'flex' => 0, 'nonFlex' => 0, 'orders' => []];
+        $windows = [];
+        foreach ($testTrips as $t) {
+            $no = (string) $t['order_no'];
+            $ls = Carbon::parse($t['loading_start'])->timestamp;
+            $re = Carbon::parse($t['return_end'] ?? $t['loading_start'])->timestamp;
+            $windows[$no]['from'] = min($windows[$no]['from'] ?? PHP_INT_MAX, $ls);
+            $windows[$no]['to']   = max($windows[$no]['to'] ?? 0, $re);
+        }
+        $candNo = (string) $candidate->order_no;
+        $cand   = $windows[$candNo] ?? null;
+        $flexByNo = $testOrders->mapWithKeys(fn($o) => [(string) $o->order_no => (bool) $o->flexibility])->all();
+
+        foreach ($committedTimes as $orderNo => $accepted) {
+            $orderNo = (string) $orderNo;
+            if ($orderNo === $candNo || empty($accepted['end']) || empty($times[$orderNo]['end'])) {
+                continue;
+            }
+            // Same side-effect filter as detectPushedOrders(): only an order active
+            // at the same time can lose plant/truck/pump time to the candidate.
+            $other = $windows[$orderNo] ?? null;
+            if ($cand && $other && ($cand['to'] <= $other['from'] || $cand['from'] >= $other['to'])) {
+                continue;
+            }
+            $extra = (int) Carbon::parse($accepted['end'])->diffInMinutes(Carbon::parse($times[$orderNo]['end']), false);
+            if ($extra <= 0) {
+                continue;
+            }
+            $out['orders'][$orderNo] = $extra;
+            $out['total'] += $extra;
+            if ($flexByNo[$orderNo] ?? true) {
+                $out['flex'] += $extra;
+            } else {
+                $out['nonFlex'] += $extra;
+            }
+        }
+        return $out;
+    }
+
 
     /**
      * Build the trip list for a set of orders, applying a per-order delay (in
@@ -1486,6 +1652,138 @@ class ScheduleService
             return ($a['order_lpi_sequence'] ?? PHP_INT_MAX) <=> ($b['order_lpi_sequence'] ?? PHP_INT_MAX);
         });
         return $trips;
+    }
+
+    /**
+     * Share the delay of an overlap between FLEXIBLE orders (agreed logic):
+     * instead of the higher-LPI order(s) absorbing all of it as longer
+     * intervals, push the candidate's start later until its own share
+     * (postponement + its own extra pour) is at least the delay it still adds
+     * to the higher-LPI orders. Smallest such start delay wins; every tested
+     * pass must stay clean (no partials, no push, within limits). Non-flexible
+     * orders never take shared delay (see NONFLEX_PROTECT).
+     *
+     * @return array{expanded:bool, delay:int, times:array, plantChoice:array}
+     */
+    private function shareDelayWithFlexible(
+        ScheduleData &$scheduleData,
+        array &$pristine,
+        array $allTrips,
+        $testOrders,
+        array $testOrderNos,
+        $candidate,
+        array $committedDelays,
+        array $committedTimes,
+        int $startDelay,
+        array $res,
+        array $plantChoice
+    ): array {
+        $no   = (string) $candidate->order_no;
+        $keep = ['expanded' => false, 'delay' => $startDelay, 'times' => $res['times'], 'plantChoice' => $plantChoice];
+        $impactOf = fn(array $r) => (int) ($r['impact']['total'] ?? 0);
+        $ownOf    = fn(array $r, int $d) => $d + (int) ($r['times'][$no]['stretch'] ?? 0);
+
+        if (!$candidate->flexibility || $impactOf($res) <= 0 || (int) ($res['impact']['nonFlex'] ?? 0) > 0
+            || $ownOf($res, $startDelay) >= $impactOf($res)) {
+            return $keep;
+        }
+
+        $prevPin = $this->pinnedPlant[$no] ?? null;
+        if (isset($plantChoice[$no])) {
+            $this->pinnedPlant[$no] = $plantChoice[$no];
+        }
+        $restorePin = function () use ($no, $prevPin) {
+            if ($prevPin === null) {
+                unset($this->pinnedPlant[$no]);
+            } else {
+                $this->pinnedPlant[$no] = $prevPin;
+            }
+        };
+        $run = fn(int $d) => $this->scheduleCandidateAtDelay(
+            $scheduleData, $pristine, $allTrips, $testOrders, $testOrderNos,
+            $candidate, $committedDelays, $d, $committedTimes
+        );
+        $clean = fn(array $r) => !$r['candidateRejected'] && empty($r['partials']);
+        // Even split = smallest "larger share": max(own delay, delay to higher LPIs).
+        $scoreOf = fn(array $r, int $d) => max($ownOf($r, $d), $impactOf($r));
+        $impact0 = $impactOf($res);
+
+        $best = ['d' => $startDelay, 'res' => $res, 'choice' => $plantChoice, 'score' => $scoreOf($res, $startDelay)];
+        $tried = [];
+        $try = function (int $d) use (&$best, &$tried, $run, $clean, $scoreOf, $impactOf, $impact0) {
+            if (isset($tried[$d])) {
+                return $tried[$d];
+            }
+            $r = $run($d);
+            $tried[$d] = $r;
+            // Never accept a start that delays the higher LPIs more than before.
+            if (!$r['expanded'] && $clean($r) && $impactOf($r) <= $impact0 && $scoreOf($r, $d) < $best['score']) {
+                $best = ['d' => $d, 'res' => $r, 'choice' => $this->passPlantChoice, 'score' => $scoreOf($r, $d)];
+            }
+            return $r;
+        };
+
+        // Geometric probes. The candidate's own share is at least its start
+        // delay, so once the delay reaches the best score nothing later can win.
+        $passes = 0;
+        $step = 1;
+        $prev = $startDelay;
+        $bracket = [$startDelay, $startDelay];
+        for ($d = $startDelay + 1;
+             $d <= $startDelay + self::INCR_MAX_DELAY_MINUTES && ($d - $startDelay) < $best['score']
+                 && $passes < self::INCR_DELAY_MAX_PROBES;
+             $d += $step, $step *= 2) {
+            $passes++;
+            $before = $best['d'];
+            $r = $try($d);
+            if ($r['expanded']) {
+                $restorePin();
+                return ['expanded' => true] + $keep;
+            }
+            if ($best['d'] !== $before) {
+                $bracket = [$prev, $d + $step];
+            }
+            $prev = $d;
+        }
+        // Refine between the probes around the best start.
+        [$lo, $hi] = $bracket;
+        $refine = 0;
+        while ($best['d'] !== $startDelay && ($hi - $lo) > 2 && $refine < self::INCR_DELAY_MAX_REFINE) {
+            $refine++;
+            $left  = intdiv($lo + $best['d'], 2);
+            $right = intdiv($best['d'] + $hi, 2);
+            foreach ([$left, $right] as $d) {
+                if ($d > $startDelay && $d !== $best['d']) {
+                    $r = $try($d);
+                    if ($r['expanded']) {
+                        $restorePin();
+                        return ['expanded' => true] + $keep;
+                    }
+                }
+            }
+            $lo = max($lo, $left);
+            $hi = min($hi, $right);
+            if ($best['d'] < $lo || $best['d'] > $hi) {
+                break;
+            }
+        }
+        $restorePin();
+
+        if ($best['d'] === $startDelay) {
+            self::schedLog()->info("[DELAY_SHARE] {$no}: no later start splits the delay more evenly "
+                . "(higher LPIs +{$impact0} min, own " . $ownOf($res, $startDelay) . " min) — keeping +{$startDelay} min.");
+            return $keep;
+        }
+        self::schedLog()->info("[DELAY_SHARE] {$no}: start +{$startDelay} → +{$best['d']} min. Higher LPIs delayed "
+            . $impact0 . " → " . $impactOf($best['res']) . " min, this order's own delay "
+            . $ownOf($res, $startDelay) . " → " . $ownOf($best['res'], $best['d']) . " min ("
+            . count($tried) . " pass(es)).");
+        return ['expanded' => false, 'delay' => $best['d'], 'times' => $best['res']['times'], 'plantChoice' => $best['choice']];
+    }
+
+    private function noteBlock(string $orderNo, string $resource, int $minutes): void
+    {
+        $this->passBlockMins[$orderNo][$resource] = ($this->passBlockMins[$orderNo][$resource] ?? 0) + max(0, $minutes);
     }
 
     /** Human-readable "ORD1+2min, ORD2+5min" summary for logging delays. */
@@ -2064,6 +2362,7 @@ class ScheduleService
         $orderTripCounter      = [];
         $orderFailSkipLogged   = [];
         $orderFirstPouringStart = [];  // Track 1st trip actual pouring_start per order
+        $this->passBlockMins    = [];  // order_no => [truck|plant|pump => minutes a trip waited]
 
         // ── Pump contention by priority (added) ───────────────────────────
         // Pre-claim the limited pumps for pump orders in LPI-descending order
@@ -2242,6 +2541,7 @@ class ScheduleService
                                     'reason' => $reason,
                                 ]);
                             }
+                            $this->noteBlock($orderNo, 'pump', $delay_time);
                             $retryOffset += $delay_time;
                             continue;
                         }
@@ -2264,6 +2564,7 @@ class ScheduleService
                     $pumpAssigned[$orderNo] = true;
                 }
                 if ($order->pump && $scheduleData->trip > 1 && empty($pumpAssigned[$orderNo])) {
+                    $this->noteBlock($orderNo, 'pump', 1);
                     $retryOffset++;
                     continue;
                 }
@@ -2290,6 +2591,7 @@ class ScheduleService
                         ]);
                     }
                     $nextTruckFree = $this->nextFreeMinutes($scheduleData->tms_availability, $currentTrip['loading_start']);
+                    $this->noteBlock($orderNo, 'truck', max(1, $nextTruckFree));
                     $retryOffset += max(1, $nextTruckFree);
                     continue;
                 }
@@ -2324,6 +2626,7 @@ class ScheduleService
                     }
                 }
                 if ($truckConflict) {
+                    $this->noteBlock($orderNo, 'truck', 1);
                     $retryOffset++;
                     continue;
                 }
@@ -2340,6 +2643,7 @@ class ScheduleService
                 $this->assignBatchingPlant($scheduleData, $location, $currentTrip['trip'], $order);
                 if (!isset($scheduleData->batching_plant['data']['plant_name'])) {
                     $nextPlantFree = $this->nextFreeMinutes($scheduleData->bps_availability, $currentTrip['loading_start']);
+                    $this->noteBlock($orderNo, 'plant', max(1, $nextPlantFree));
                     $retryOffset += max(1, $nextPlantFree);
                     continue;
                 }
@@ -4968,6 +5272,55 @@ class ScheduleService
      * reject report the REAL cause (e.g. a pump-availability message) instead
      * of the generic "all plants at full capacity" fallback.
      */
+    /**
+     * Rejection text for operations: the main cause (the resource the order's
+     * trips waited on most in the last pass — truck mixer, plant or pump) plus
+     * alternatives they can offer the customer.
+     */
+    private function explainRejection(ScheduleData $scheduleData, $candidate, string $reason): string
+    {
+        $no      = (string) $candidate->order_no;
+        $blocked = $this->passBlockMins[$no] ?? [];
+        arsort($blocked);
+        $main    = (key($blocked) !== null && reset($blocked) > 0) ? key($blocked) : null;
+
+        $cause = '';
+        if ($main === 'truck' && stripos($reason, 'pump') === false) {
+            $cause = "No available truck mixer (trips waited {$blocked['truck']} min for a mixer). ";
+        } elseif ($main === 'plant' && stripos($reason, 'pump') === false) {
+            $cause = "No batching plant available (trips waited {$blocked['plant']} min for a plant). ";
+        }
+
+        $alternatives = [];
+        $alternatives[] = "move the delivery to a later time or another day";
+        if ($main === 'truck') {
+            $alternatives[] = "add more truck mixers to this schedule";
+        }
+        if (stripos($reason, 'pump') !== false || $main === 'pump') {
+            $alternatives[] = "add a pump (increase the pump count in step 2) or free a matching pump";
+        }
+        $openNames = array_values(array_unique(array_column($scheduleData->bps_availability_full ?? [], 'plant_name')));
+        try {
+            $otherPlants = DB::table('batching_plants')
+                ->join('company_locations', 'company_locations.id', '=', 'batching_plants.company_location_id')
+                ->where('batching_plants.group_company_id', $scheduleData->company)
+                ->where('batching_plants.status', ConstantHelper::ACTIVE)
+                ->where('company_locations.location', $candidate->location)
+                ->whereNotIn('batching_plants.plant_name', $openNames)
+                ->pluck('batching_plants.plant_name')
+                ->all();
+        } catch (\Throwable $e) {
+            $otherPlants = [];
+        }
+        if (!empty($otherPlants)) {
+            $alternatives[] = "select another plant (" . implode(', ', $otherPlants) . ")";
+        }
+
+        $text = $cause . rtrim($reason);
+        return $text . (str_ends_with($text, '.') ? '' : '.')
+            . " Alternatives: " . implode('; ', $alternatives) . ".";
+    }
+
     private function candidatePartialReason(array $partials, $candidate): ?string
     {
         foreach ($partials as $p) {
